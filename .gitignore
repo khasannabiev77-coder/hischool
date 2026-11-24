@@ -6,3 +6,8 @@ dist/
 certs/
 *.log
 .env
+.vercel/
+.env*
+
+.vercel
+.env*

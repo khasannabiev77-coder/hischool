@@ -41,6 +41,21 @@ Namuna rejimi faqat shu kompyuterda ochiladi.
 - Ovoz oʻqituvchi yoqsagina uzatiladi. Serverda faqat eng oxirgi kadr turadi (ovozning oxirgi 6 soniyasi bilan), dars tugagach oʻchadi.
 - Tanish va «diqqat» foizi taxminiy. Davomatni jurnalda tekshiring. Kamerani doska yoniga qoʻying.
 
+## Vercel ga joylashtirish
+
+Sozlamalar `vercel.json` da. Kerak: Postgres (Vercel Marketplace dagi Neon, bepul) va `ADMIN_PASSWORD`.
+
+```
+npx vercel link
+npx vercel install neon
+npx vercel env add ADMIN_PASSWORD production
+npx vercel deploy --prod
+```
+
+Neon `DATABASE_URL` ni oʻzi qoʻshadi. Rasmlar ham, jonli darsning oxirgi kadri ham Postgres da turadi (kadrlar jadvali jurnalsiz, zaxiraga tushmaydi). Saytga `HS-ADMIN` bilan kirasiz.
+
+Bepul Hobby rejasi Vercel qoidasiga koʻra shaxsiy, notijorat loyihalar uchun. Pullik maktab uchun Pro reja kerak.
+
 ## Netlify ga joylashtirish
 
 1. [app.netlify.com](https://app.netlify.com) da **Add new project → Import from GitHub** orqali shu repozitoriyni tanlang. Sozlamalar `netlify.toml` dan olinadi.

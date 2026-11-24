@@ -1,5 +1,5 @@
 /* API: standart Request -> Response. Lokal server ham, Netlify funksiyasi ham shuni chaqiradi. */
-import { get, run } from './db.js';
+import { SERVERLESS, get, run } from './db.js';
 import { userFromCookie, SESSION_MS, hash, newPassword } from './auth.js';
 import { Err, handle } from './core.js';
 import './live.js';
@@ -11,7 +11,7 @@ import './routes-admin.js';
 export async function ensureAdmin() {
   if (await get(`SELECT 1 FROM users WHERE role = 'admin'`)) return null;
   const given = (process.env.ADMIN_PASSWORD || '').trim().toLowerCase();
-  if (process.env.AWS_LAMBDA_FUNCTION_NAME && given.length < 8) {
+  if (SERVERLESS && given.length < 8) {
     console.warn('Admin yaratilmadi: ADMIN_PASSWORD (kamida 8 belgi) oʻzgaruvchisini kiriting va qayta deploy qiling.');
     return null;
   }

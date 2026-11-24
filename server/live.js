@@ -104,7 +104,7 @@ on('GET', '/live/frame', null, async (c) => {
     if (g.why) return nothing(g.why);
     t = g.data; token = g.token;
   }
-  const f = await getFrame(t.lesson);
+  const f = await getFrame(t.lesson, c.q.get('since'));
   if (!f || Date.now() - f.at > 12000) return nothing('waiting', token);
   if (String(f.at) === c.q.get('since')) return nothing('same', token);
   const buf = f.buf, hl = buf.readUInt32BE(0), head = JSON.parse(buf.subarray(4, 4 + hl));
