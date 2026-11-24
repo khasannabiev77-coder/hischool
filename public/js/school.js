@@ -74,7 +74,7 @@ const livePage = withClass('Jonli dars', '', async (ctx) => {
     <div class="camgrid"><div>
       ${on ? '' : card('', html`<form id="start" class="inline">${open ? html`<p class="grow"><span>Yakunlanmagan dars bor</span>: <b>${open.topic}</b></p>` : field('topic', 'Dars mavzusi', { placeholder: 'Unit 5: My favourite season', maxlength: 120 })}<button class="btn" type="submit">${open ? 'Kamerani ulash' : 'Darsni boshlash'}</button>${open ? html`<button type="button" class="btn ghost" id="endopen">Darsni yakunlash</button>` : ''}</form>`)}
       <div class="cam" id="cam"><canvas id="cv" width="960" height="540" ${on ? '' : html`hidden`}></canvas><div class="cam-off" ${on ? html`hidden` : ''}>${icon('camera', 40)}<p>Kamera oʻchiq. Uni butun sinf koʻrinadigan joyga qoʻying.</p></div>
-        <div class="cam-top">${on ? html`<span class="hud live"><i class="live-dot"></i>LIVE</span>` : ''}<span class="hud">${cls.room || cls.name}</span>${on ? html`<span class="hud right">${icon('eye', 16)} <span id="vw">${cls.viewers}</span></span>` : ''}</div>
+        <div class="cam-top">${on ? html`<span class="hud live"><i class="live-dot"></i>LIVE</span>` : ''}<span class="hud">${cls.room || cls.name}</span>${on ? html`<span class="hud right">${icon('eye', 16)} <span id="vw">${camera.viewers}</span></span>` : ''}</div>
         ${on ? html`<div class="cam-bar"><b class="ell">${camera.lesson.topic}</b><span class="grow"></span><button class="btn small danger solid" id="stop">Darsni yakunlash</button></div>` : ''}</div>
       <p id="st" class="status" role="status"></p></div>
     <div class="cam-side">${card('Kamera sozlamasi', html`<div class="stack">${select('dev', 'Kamera', [['', 'Standart']])}${select('tiles', 'Sinf kattaligi', [[1, 'Kichik (tez)'], [4, 'Katta, orqa partalar (sekin)']], camera.opts.tiles)}${select('width', 'Tasvir sifati', [[640, 'Tejamkor'], [960, 'Oʻrta'], [1280, 'Yuqori']], camera.opts.width)}
@@ -86,6 +86,7 @@ const livePage = withClass('Jonli dars', '', async (ctx) => {
   const draw = () => {
     if (!camera.running) return;
     const F = camera.full, k = Math.min(1, 1280 / F.width);
+    if ($('#vw')) $('#vw').textContent = camera.viewers;
     if (!F.width) return;
     cv.width = F.width * k; cv.height = F.height * k;
     g.drawImage(F, 0, 0, cv.width, cv.height);
@@ -109,9 +110,9 @@ const livePage = withClass('Jonli dars', '', async (ctx) => {
     }
   };
   const onStatus = (e) => { st.textContent = tr(e.detail); };
-  camera.addEventListener('tick', draw); camera.addEventListener('status', onStatus);
-  const poll = on && setInterval(async () => { try { const r = await api('GET', '/t/classes'); const v = r.classes.find((c) => c.id === state.classId)?.viewers; if ($('#vw')) $('#vw').textContent = v; } catch { /* keyingi safar */ } }, 8000);
-  ctx.onLeave(() => { camera.removeEventListener('tick', draw); camera.removeEventListener('status', onStatus); clearInterval(poll); });
+  const onEnded = () => { camera.lesson = null; toast('Dars yakunlandi', 'info'); ctx.refresh(); };
+  camera.addEventListener('tick', draw); camera.addEventListener('status', onStatus); camera.addEventListener('ended', onEnded);
+  ctx.onLeave(() => { camera.removeEventListener('tick', draw); camera.removeEventListener('status', onStatus); camera.removeEventListener('ended', onEnded); });
 
   const dev = $('[name=dev]');
   navigator.mediaDevices?.enumerateDevices().then((list) => list.filter((d) => d.kind === 'videoinput' && d.deviceId).forEach((d, i) => dev.add(new Option(d.label || `${tr('Kamera')} ${i + 1}`, d.deviceId, false, d.deviceId === camera.opts.deviceId)))).catch(() => {});

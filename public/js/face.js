@@ -1,5 +1,5 @@
 /* Yuzni tanish. Modellar shu serverdan yuklanadi, rasm tashqi xizmatga yuborilmaydi. */
-import { Socket, api } from './ui.js';
+import { api, state } from './ui.js';
 
 let fa, loading;
 export function loadFace() {
@@ -70,6 +70,9 @@ class ClassCamera extends EventTarget {
   full = document.createElement('canvas');
   out = document.createElement('canvas');
   mini = document.createElement('canvas');
+  viewers = 0;
+  sound = [];
+  soundEnd = 0;
 
   async start(lesson, students) {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Kamera faqat localhost yoki HTTPS manzilda ishlaydi.');
@@ -84,9 +87,9 @@ class ClassCamera extends EventTarget {
     } catch (e) { this.closeCamera(); throw e; }
     this.running = true;
     this.lastError = null;
-    this.socket = new Socket((m) => { if (typeof m === 'string' && JSON.parse(m).t === 'camera-off') this.emit('status', 'Bu xona kamerasi admin tomonidan oʻchirilgan. Ota-onalarga tasvir bormayapti.'); });
-    this.flusher = setInterval(() => this.flush(), 5000);
     try { this.lock = await navigator.wakeLock?.request('screen'); } catch { /* ixtiyoriy */ }
+    await this.beat();
+    this.beater = setInterval(() => this.beat(), state.pace.beat);
     if (this.opts.audio) await this.startAudio().catch((e) => this.emit('status', e.message));
     this.loop();
   }
@@ -94,17 +97,16 @@ class ClassCamera extends EventTarget {
   /** Ovoz faqat oʻqituvchi yoqsa uzatiladi, yozib olinmaydi. */
   async startAudio() {
     this.stopAudio();
+    this.sound = []; this.soundEnd = 0;
     try { this.mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); } catch { this.opts.audio = false; throw new Error('Mikrofonga ruxsat berilmadi.'); }
     this.actx = new AudioContext();
     await this.actx.audioWorklet.addModule('/js/mic-worklet.js');
     const node = new AudioWorkletNode(this.actx, 'mic');
     this.actx.createMediaStreamSource(this.mic).connect(node);
     node.port.onmessage = ({ data }) => {
-      if (!this.running || !this.socket?.ready) return;
-      const out = new Uint8Array(8 + data.length);
-      new DataView(out.buffer).setUint32(4, this.lesson.id);
-      out.set(data, 8);
-      this.socket.send(out);
+      if (!this.running) return;
+      this.sound.push(data); this.soundEnd += data.length;
+      while (this.sound.length > 60) this.sound.shift(); // oxirgi 6 soniya
     };
   }
   stopAudio() { this.mic?.getTracks().forEach((t) => t.stop()); this.actx?.close(); this.mic = this.actx = null; }
@@ -209,7 +211,11 @@ class ClassCamera extends EventTarget {
       st.now = t ? (t.attentive ? 'attentive' : 'away') : 'unseen';
       this.pendingStats.set(s.id, p);
     }
-    await this.publish();
+    // Hech kim koʻrmayotgan boʻlsa kadr yuborilmaydi.
+    if (this.viewers && this.token && !this.sending && now - (this.sentAt || 0) >= state.pace.frame) {
+      this.sending = true; this.sentAt = now;
+      this.publish().catch((e) => console.error(e)).finally(() => { this.sending = false; });
+    }
     this.emit('tick');
   }
 
@@ -245,7 +251,7 @@ class ClassCamera extends EventTarget {
         const p = document.createElement('canvas');
         p.width = Math.max(1, Math.round(b.w)); p.height = Math.max(1, Math.round(b.h));
         p.getContext('2d').drawImage(F, b.x / k, b.y / k, b.w / k, b.h / k, 0, 0, p.width, p.height);
-        patches.push({ sid: t.sid, box: b, blob: await jpeg(p, 0.75) });
+        patches.push({ sid: t.sid, box: b, canvas: p });
       }
       for (const { b } of areas) {
         const M = this.mini;
@@ -256,36 +262,58 @@ class ClassCamera extends EventTarget {
         c.imageSmoothingEnabled = true;
       }
     }
+    // Bu yergacha hammasi bir zumda chizildi; keyingi kadr kelsa ham yuz va fon mos qoladi.
+    const faces = known.map(({ t }) => ({ sid: t.sid, box: sc(t.box), attentive: t.attentive }));
+    const scores = [...this.stats].map(([sid, s]) => ({ sid, score: this.score(sid), now: s.now }));
+    const sound = this.mic ? this.sound.slice() : [], audioLen = sound.reduce((n, x) => n + x.length, 0), audioPos = this.soundEnd - audioLen;
+    for (const p of patches) p.blob = await jpeg(p.canvas, 0.75);
     const base = await jpeg(O, 0.6);
     if (!this.running) return;
     const head = new TextEncoder().encode(JSON.stringify({
-      lesson: this.lesson.id, w: O.width, h: O.height, base: base.size, blur, audio: !!this.mic, at: Date.now(),
-      faces: known.map(({ t }) => ({ sid: t.sid, box: sc(t.box), attentive: t.attentive })),
-      scores: [...this.stats].map(([sid, s]) => ({ sid, score: this.score(sid), now: s.now })),
+      w: O.width, h: O.height, base: base.size, blur, audio: !!this.mic, audioPos, audioLen, faces, scores,
       patches: patches.map((p) => ({ sid: p.sid, box: p.box, len: p.blob.size })),
     }));
     const len = new DataView(new ArrayBuffer(4));
     len.setUint32(0, head.length);
-    this.socket.send(await new Blob([len, head, base, ...patches.map((p) => p.blob)]).arrayBuffer());
+    const r = await fetch('/api/live/frame?t=' + encodeURIComponent(this.token), { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: new Blob([len, head, base, ...patches.map((p) => p.blob), ...sound]) });
+    if (!r.ok && r.status === 403) this.token = null; // keyingi "beat" yangisini beradi
   }
 
-  flush() {
-    const items = [...this.pendingStats].filter(([, p]) => p.samples).map(([sid, p]) => ({ sid, ...p, arrived: this.stats.get(sid).strong >= 3 }));
-    if (items.length && this.socket?.send(JSON.stringify({ t: 'activity', lesson: this.lesson.id, items }))) this.pendingStats = new Map();
+  /** Serverga hisob yuboradi, tomoshabinlar soni va yuborish ruxsatini oladi. */
+  async beat() {
+    if (!this.running || this.beating) return;
+    this.beating = true;
+    const sent = this.pendingStats;
+    this.pendingStats = new Map();
+    const items = [...sent].filter(([, p]) => p.samples).map(([sid, p]) => ({ sid, ...p, arrived: this.stats.get(sid).strong >= 3 }));
+    try {
+      const r = await api('POST', '/live/beat', { lesson: this.lesson.id, items });
+      if (this.offline) { this.offline = false; this.emit('status', ''); }
+      this.viewers = r.viewers; this.token = r.token;
+      if (!r.camera_on) { this.offline = true; this.emit('status', 'Bu xona kamerasi admin tomonidan oʻchirilgan. Ota-onalarga tasvir bormayapti.'); }
+    } catch (e) {
+      for (const [sid, p] of sent) { const q = this.pendingStats.get(sid) || { samples: 0, seen: 0, attentive: 0 }; this.pendingStats.set(sid, { samples: p.samples + q.samples, seen: p.seen + q.seen, attentive: p.attentive + q.attentive }); }
+      this.offline = true;
+      this.emit('status', e.message);
+      if (e.status === 409 && this.running) { this.halt(); this.emit('ended'); }
+    }
+    this.beating = false;
   }
 
   async stop() {
     if (!this.running) { this.closeCamera(); return; }
-    this.flush();
+    const last = this.beat(); // oxirgi hisob
+    this.halt();
+    await last;
+    this.emit('tick');
+  }
+  halt() {
+    clearInterval(this.beater);
     this.running = false;
-    clearInterval(this.flusher);
+    this.viewers = 0;
     this.closeCamera();
     this.stopAudio();
     this.lock?.release?.().catch(() => {});
-    const s = this.socket;
-    await new Promise((r) => setTimeout(r, 300)); // oxirgi hisob yetib borsin
-    s?.close();
-    this.emit('tick');
   }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
 }

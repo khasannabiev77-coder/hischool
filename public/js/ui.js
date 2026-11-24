@@ -10,7 +10,7 @@ export const $ = (q, el = document) => el.querySelector(q);
 export const $$ = (q, el = document) => [...el.querySelectorAll(q)];
 export const put = (el, tpl) => { el.innerHTML = part(tpl); translate(el); animate(el); return el; };
 
-export const state = { user: null, classes: [], rooms: [], classId: null, pending: 0, children: [], childId: null, onAuthLost: () => {}, bus: null };
+export const state = { user: null, classes: [], rooms: [], classId: null, pending: 0, children: [], childId: null, onAuthLost: () => {}, bus: null, pace: { poll: 4000, frame: 300, beat: 3000, idle: 3000 } };
 
 export async function api(method, url, body) {
   let r;
@@ -215,17 +215,26 @@ document.addEventListener('click', async (e) => {
 export const showCard = (name, login, password) => dialog(html`<form method="dialog"><h2>Yangi parol</h2><p>Parol faqat bir marta koʻrsatiladi. Uni egasiga bering.</p>${passCard(name, login, password)}<div class="row end"><button class="btn">Tayyor</button></div></form>`);
 export const act = (fn) => async (e) => { const b = e.currentTarget; b.disabled = true; try { await fn(b, e); } catch (x) { toast(x.message, 'err'); } b.disabled = false; };
 
-/* ---------- jonli aloqa ---------- */
-export class Socket {
-  constructor(onMessage, onOpen = () => {}) { this.onMessage = onMessage; this.onOpen = onOpen; this.closed = false; this.open(); }
-  open() {
-    this.ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/live`);
-    this.ws.binaryType = 'arraybuffer';
-    this.ws.onopen = () => this.onOpen();
-    this.ws.onmessage = (e) => this.onMessage(e.data);
-    this.ws.onclose = () => { if (!this.closed) this.timer = setTimeout(() => this.open(), 2000); };
+/* ---------- davriy aloqa ---------- */
+/** Serverdan yangi xabarlarni soʻrab turadi. Sahifa yashirin boʻlsa toʻxtaydi. */
+export class Poller {
+  constructor(onMessage) { this.onMessage = onMessage; this.since = 0; this.ok = true; this.visible = () => { if (!document.hidden) this.run(); }; document.addEventListener('visibilitychange', this.visible); this.run(); }
+  async run() {
+    clearTimeout(this.timer);
+    if (this.closed || document.hidden || this.busy) return;
+    this.busy = true;
+    try {
+      const r = await api('GET', `/poll?since=${this.since}`);
+      if (this.closed) return;
+      const first = !this.since;
+      this.ok = true;
+      this.since = Math.max(this.since, ...r.fresh.map((n) => n.created), first ? r.now : 0);
+      this.onMessage({ t: 'unread', n: r.unread });
+      for (const n of r.fresh) this.onMessage({ t: 'notif', ...n });
+      if (!first && r.live !== this.live) this.onMessage({ t: 'lesson' });
+      this.live = r.live;
+    } catch { this.ok = false; } finally { this.busy = false; }
+    if (!this.closed) this.timer = setTimeout(() => this.run(), state.pace.poll);
   }
-  get ready() { return this.ws.readyState === 1; }
-  send(x) { if (!this.ready || this.ws.bufferedAmount > 1.5e6) return false; this.ws.send(x); return true; }
-  close() { this.closed = true; clearTimeout(this.timer); this.ws.close(); }
+  close() { this.closed = true; clearTimeout(this.timer); document.removeEventListener('visibilitychange', this.visible); }
 }

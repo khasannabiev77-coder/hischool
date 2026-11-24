@@ -4,7 +4,7 @@ Oʻquvchi, oʻqituvchi va ota-onani bitta tizimga birlashtiradigan ingliz tili t
 
 ## Ishga tushirish
 
-1. [Node.js](https://nodejs.org) 22.13 yoki yangiroq versiyasi kerak.
+1. [Node.js](https://nodejs.org) 22.12 yoki yangiroq versiyasi kerak.
 2. `start.bat` faylini oching (yoki `npm install && npm start`). Manzil: http://localhost:3000
 3. Birinchi ishga tushganda oynada **admin login-paroli** va oʻqituvchilar uchun **maktab kodi** chiqadi. Admin paroli faqat bir marta koʻrsatiladi.
 
@@ -38,27 +38,43 @@ Namuna rejimi faqat shu kompyuterda ochiladi.
 
 - Kompyuterga ulangan yoki USB kamera ishlaydi. IP (RTSP) kamerani OBS kabi dastur orqali virtual kamera qilib ulang.
 - Ota-onaga faqat oʻz farzandining yuzi ochiq boradi, boshqa yuzlar xiralashtiriladi. Yuz aniqlanmagan kadrda xiralashtirish ishlamasligi mumkin.
-- Ovoz oʻqituvchi yoqsagina uzatiladi. Video ham, ovoz ham saqlanmaydi.
+- Ovoz oʻqituvchi yoqsagina uzatiladi. Serverda faqat eng oxirgi kadr turadi (ovozning oxirgi 6 soniyasi bilan), dars tugagach oʻchadi.
 - Tanish va «diqqat» foizi taxminiy. Davomatni jurnalda tekshiring. Kamerani doska yoniga qoʻying.
 
-## Internetga joylashtirish
+## Netlify ga joylashtirish
 
-Uydan kirish uchun HTTPS server kerak (kamera ham faqat `localhost` yoki HTTPS da ochiladi):
+1. [app.netlify.com](https://app.netlify.com) da **Add new project → Import from GitHub** orqali shu repozitoriyni tanlang. Sozlamalar `netlify.toml` dan olinadi.
+2. **Project configuration → Environment variables** boʻlimida `ADMIN_PASSWORD` qoʻshing (kamida 8 belgi, kichik harflar).
+3. **Deploy** qiling. Netlify Database (Postgres) va Blobs oʻzi yaratiladi, jadvallar birinchi ochilishda tuziladi.
+4. Saytga `HS-ADMIN` va oʻzingiz kiritgan parol bilan kiring. Parolni **Sozlamalar** da almashtiring.
 
-- proksi (Caddy, nginx) orqasida: `TRUST_PROXY=1`, `HOST=127.0.0.1`; proksi WebSocket (`/live`) ni ham oʻtkazsin;
-- yoki sertifikatni `certs/cert.pem` va `certs/key.pem` ga qoʻying.
+Boshqa Postgres (Neon, Supabase) ishlatmoqchi boʻlsangiz, `DATABASE_URL` ni kiriting, u Netlify Database dan ustun turadi.
 
-Maʼlumotlar bazasi va rasmlar diskda (`data/`) saqlanadi, shuning uchun doimiy diskli server kerak. Sozlamalar: `PORT`, `HOST`, `HS_DATA`, `TRUST_PROXY`.
+| Oʻzgaruvchi | Vazifasi |
+| --- | --- |
+| `ADMIN_PASSWORD` | Birinchi admin paroli (Netlify da majburiy) |
+| `DATABASE_URL` | Boshqa Postgres (ixtiyoriy) |
+| `HS_TZ` | Maktab vaqt mintaqasi, odatda `Asia/Tashkent` |
+
+Netlify da bilish kerak:
+
+- Netlify Database faqat kreditli rejalarda bor (2025-yil sentabrdan keyingi yangi akkauntlarda standart, bepul reja ham kiradi).
+- WebSocket yoʻq: bildirishnomalar 45 soniyada bir, jonli kadr 1–2 soniyada bir yangilanadi. Lokal serverda tezroq.
+- Jonli dars trafik sarflaydi: bitta ota-ona uchun soatiga taxminan 100 MB. Hech kim koʻrmayotganda kadr yuborilmaydi. Katta maktab uchun bepul reja yetmasligi mumkin.
+
+## Oʻz serveringiz
+
+HTTPS kerak (kamera faqat `localhost` yoki HTTPS da ochiladi): proksi orqasida `TRUST_PROXY=1` va `HOST=127.0.0.1`, yoki sertifikatni `certs/cert.pem` va `certs/key.pem` ga qoʻying. Sozlamalar: `PORT`, `HOST`, `HS_DATA`, `DATABASE_URL`.
 
 ## Xavfsizlik
 
 - Parollar scrypt bilan xeshlanadi, kirish urinishlari cheklanadi.
 - Sessiya HttpOnly cookie orqali; faol qurilmalar sozlamalarda koʻrinadi va chiqariladi.
 - Har bir soʻrovda rol va egalik serverda tekshiriladi. Kamera ruxsatini ota-ona yoki xona boʻyicha yopish mumkin, koʻrishlar qayd etiladi.
-- `data/` va `certs/` Git ga tushmaydi. Bolalar rasmi uchun ota-onadan yozma rozilik oling.
+- Lokal maʼlumot (`data/`) va `certs/` Git ga tushmaydi. Bolalar rasmi uchun ota-onadan yozma rozilik oling.
 
 Parolni unutgan admin yoki oʻqituvchi uchun: `npm run reset-password -- HS-ADMIN`
 
 ## Texnologiya
 
-Node.js (`node:http`, `node:sqlite`), WebSocket (`ws`), oddiy JavaScript modullari. Yuzni tanish: `@vladmandic/face-api`, brauzerning oʻzida. Shrift: Onest.
+Node.js, Postgres (lokalda PGlite), Netlify Functions va Blobs, oddiy JavaScript modullari. Yuzni tanish: `@vladmandic/face-api`, brauzerning oʻzida. Shrift: Onest.

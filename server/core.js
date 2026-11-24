@@ -72,9 +72,8 @@ export const V = {
 };
 
 /* ---------- ruxsatlar: admin hammasini, oʻqituvchi faqat oʻz sinfini boshqaradi ---------- */
-const adm = (u) => (u.role === 'admin' ? 1 : 0);
-export const ownClass = (u, id) => get('SELECT * FROM classes WHERE id = ? AND (teacher_id = ? OR ?)', Number(id) || 0, u.id, adm(u)) || missing();
-const own = (sql) => (u, id) => get(`${sql} AND (c.teacher_id = ? OR ?)`, Number(id) || 0, u.id, adm(u)) || missing();
+const own = (sql) => async (u, id) => (await get(`${sql} AND (c.teacher_id = ? OR ?::int = 1)`, Number(id) || 0, u.id, u.role === 'admin' ? 1 : 0)) || missing();
+export const ownClass = own('SELECT c.* FROM classes c WHERE c.id = ?');
 export const ownStudent = own(`SELECT s.*, u.first, u.last, c.name class_name, c.teacher_id FROM students s JOIN users u ON u.id = s.id
   JOIN classes c ON c.id = s.class_id WHERE s.id = ?`);
 export const ownHomework = own('SELECT h.* FROM homework h JOIN classes c ON c.id = h.class_id WHERE h.id = ?');
@@ -83,14 +82,14 @@ export const ownSchedule = own('SELECT x.* FROM schedule x JOIN classes c ON c.i
 export const ownLesson = own('SELECT l.* FROM lessons l JOIN classes c ON c.id = l.class_id WHERE l.id = ?');
 export const ownLink = own(`SELECT l.*, s.status student_status FROM links l JOIN students s ON s.id = l.student_id JOIN classes c ON c.id = s.class_id WHERE l.id = ?`);
 
-export function canSee(u, sid) {
+export async function canSee(u, sid) {
   if (u.role === 'admin') return true;
   if (u.role === 'student') return u.id === sid;
   if (u.role === 'parent') {
-    return !!get(`SELECT 1 FROM links l JOIN students s ON s.id = l.student_id
+    return !!await get(`SELECT 1 FROM links l JOIN students s ON s.id = l.student_id
       WHERE l.parent_id = ? AND l.student_id = ? AND l.status = 'approved' AND s.status = 'approved'`, u.id, sid);
   }
-  return !!get('SELECT 1 FROM students s JOIN classes c ON c.id = s.class_id WHERE s.id = ? AND c.teacher_id = ?', sid, u.id);
+  return !!await get('SELECT 1 FROM students s JOIN classes c ON c.id = s.class_id WHERE s.id = ? AND c.teacher_id = ?', sid, u.id);
 }
 
 /* ---------- yoʻllar: roles null = hamma, [] = kirgan har kim ---------- */
@@ -99,7 +98,6 @@ export const on = (method, pattern, roles, fn) => routes.push({
   method, roles, fn, re: new RegExp('^/api' + pattern.replace(/:(\w+)/g, '(?<$1>\\d+)') + '$'),
 });
 
-export const SENT = Symbol('sent');
 export async function handle(c, pathname) {
   let known = false;
   for (const r of routes) {
@@ -112,7 +110,7 @@ export async function handle(c, pathname) {
       if (r.roles.length && !r.roles.includes(c.user.role)) deny();
     }
     c.p = m.groups || {};
-    if (c.method !== 'GET') c.body = await c.readBody();
+    if (c.method !== 'GET' && !pathname.startsWith('/api/live/frame')) c.body = await c.readBody();
     return r.fn(c);
   }
   throw new Err(known ? 405 : 404, 'Topilmadi.');

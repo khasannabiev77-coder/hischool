@@ -1,4 +1,4 @@
-import { html, put, $, $$, api, state, toast, icon, logo, field, select, phoneField, onSubmit, setError, passCard, full, avatar, skeleton, Socket, act } from './ui.js';
+import { html, put, $, $$, api, state, toast, icon, logo, field, select, phoneField, onSubmit, setError, passCard, full, avatar, skeleton, Poller, act } from './ui.js';
 import { langPicker, bindLang, tr, ready } from './i18n.js';
 import { analysePhoto, toCanvas, loadFace } from './face.js';
 import { landing, isSection } from './landing.js';
@@ -128,15 +128,13 @@ const ROLE_NAME = { admin: 'Administrator', teacher: 'Oʻqituvchi', parent: 'Ota
 
 async function start(user) {
   state.user = user;
-  const listeners = new Set(), openers = new Set();
-  state.bus = { on: (f) => (listeners.add(f), () => listeners.delete(f)), onOpen: (f) => (openers.add(f), () => openers.delete(f)) };
-  state.bus.socket = new Socket((m) => {
-    if (typeof m === 'string') {
-      const d = JSON.parse(m);
-      if (d.t === 'notif') { state.user.unread = (state.user.unread || 0) + 1; badges(); toast(describe(d).text, 'info'); }
-      listeners.forEach((f) => f(d));
-    } else listeners.forEach((f) => f(m));
-  }, () => openers.forEach((f) => f()));
+  const listeners = new Set();
+  state.bus = { on: (f) => (listeners.add(f), () => listeners.delete(f)) };
+  state.bus.poller = new Poller((d) => {
+    if (d.t === 'unread') { state.user.unread = d.n; badges(); }
+    if (d.t === 'notif') toast(describe(d).text, 'info');
+    listeners.forEach((f) => f(d));
+  });
   await book().init?.();
 }
 async function enter(user) {
@@ -227,7 +225,7 @@ export async function settingsPage(ctx, extra = '', bind) {
 function signedOut() {
   if (!state.user) return;
   book().dispose?.();
-  state.bus?.socket.close();
+  state.bus?.poller.close();
   Object.assign(state, { user: null, classes: [], classId: null, children: [], childId: null, pending: 0, bus: null });
   if (location.hash === '#/login') route(); else location.hash = '#/login';
 }
@@ -256,7 +254,8 @@ addEventListener('hs-lang', () => { view = ''; route(); });
 
 await ready;
 try {
-  const { user } = await api('GET', '/me');
+  const { user, pace } = await api('GET', '/me');
+  state.pace = pace;
   if (user) await start(user);
 } catch (e) { toast(e.message, 'err'); }
 route();

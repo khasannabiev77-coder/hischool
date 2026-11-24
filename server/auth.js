@@ -24,33 +24,33 @@ export function verify(password, stored) {
   return timingSafeEqual(scryptSync(password, salt, 32), key);
 }
 
-export function newLogin() {
+export async function newLogin() {
   for (;;) {
     const login = `HS-${randomInt(1000, 100000)}`;
-    if (!get('SELECT 1 FROM users WHERE login = ?', login)) return login;
+    if (!await get('SELECT 1 FROM users WHERE login = ?', login)) return login;
   }
 }
 
 const sha = (t) => createHash('sha256').update(t).digest('hex');
 export const SESSION_MS = 180 * 864e5; // 180 kun eslab qolinadi
 
-export function createSession(userId, ua = '') {
+export async function createSession(userId, ua = '') {
   const token = randomBytes(32).toString('base64url'), now = Date.now();
-  run('DELETE FROM sessions WHERE expires < ?', now);
-  run('INSERT INTO sessions (token, user_id, expires, created, seen, ua) VALUES (?,?,?,?,?,?)', sha(token), userId, now + SESSION_MS, now, now, String(ua).slice(0, 200));
-  run('INSERT OR IGNORE INTO visits VALUES (?, ?)', userId, today());
+  await run('DELETE FROM sessions WHERE expires < ?', now);
+  await run('INSERT INTO sessions (token, user_id, expires, created, seen, ua) VALUES (?,?,?,?,?,?)', sha(token), userId, now + SESSION_MS, now, now, String(ua).slice(0, 200));
+  await visit(userId);
   return token;
 }
-export function userFromCookie(header) {
+const visit = (id) => run('INSERT INTO visits VALUES (?, ?) ON CONFLICT (user_id, date) DO NOTHING', id, today());
+export async function userFromCookie(header) {
   const token = /(?:^|;\s*)hs=([\w-]+)/.exec(header || '')?.[1];
   if (!token) return null;
   const key = sha(token);
-  const u = get(`SELECT u.id, u.role, u.login, u.first, u.last, u.phone, u.telegram, u.position, u.experience, u.bio, u.public, u.photo IS NOT NULL has_photo, s.seen
+  const u = await get(`SELECT u.id, u.role, u.login, u.first, u.last, u.phone, u.telegram, u.position, u.experience, u.bio, u.public, u.photo IS NOT NULL has_photo, s.seen
     FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires > ?`, key, Date.now());
   if (!u) return null;
   if (Date.now() - u.seen > 60000) {
-    run('UPDATE sessions SET seen = ? WHERE token = ?', Date.now(), key);
-    run('INSERT OR IGNORE INTO visits VALUES (?, ?)', u.id, today());
+    await Promise.all([run('UPDATE sessions SET seen = ? WHERE token = ?', Date.now(), key), visit(u.id)]);
   }
   return { ...u, session: key };
 }
@@ -58,17 +58,15 @@ export const dropSession = (key) => run('DELETE FROM sessions WHERE token = ?', 
 export const dropSessions = (userId, except = '') =>
   run('DELETE FROM sessions WHERE user_id = ? AND token <> ?', userId, except);
 
-/** Urinishlar cheklovi: `hit` sanaydi, `limited` chegaradan oʻtganini aytadi. */
-const hits = new Map();
-export function limited(key, max) {
-  const h = hits.get(key);
-  return !!h && h.until > Date.now() && h.n >= max;
+/** Urinishlar cheklovi bazada: serverless muhitda har nusxa xotirasi alohida. */
+export async function limited(key, max) {
+  const h = await get('SELECT n FROM hits WHERE key = ? AND until > ?', key, Date.now());
+  return !!h && h.n >= max;
 }
-export function hit(key, ms) {
+export async function hit(key, ms) {
   const now = Date.now();
-  const h = hits.get(key);
-  if (!h || h.until <= now) hits.set(key, { n: 1, until: now + ms });
-  else h.n++;
-  if (hits.size > 5000) for (const [k, v] of hits) if (v.until <= now) hits.delete(k);
+  await run(`INSERT INTO hits VALUES (?, 1, ?) ON CONFLICT (key) DO UPDATE SET n = CASE WHEN hits.until > ? THEN hits.n + 1 ELSE 1 END,
+    until = CASE WHEN hits.until > ? THEN hits.until ELSE excluded.until END`, key, now + ms, now, now);
+  if (randomInt(50) === 0) await run('DELETE FROM hits WHERE until < ?', now);
 }
-export const clearHits = (key) => hits.delete(key);
+export const clearHits = (key) => run('DELETE FROM hits WHERE key = ?', key);

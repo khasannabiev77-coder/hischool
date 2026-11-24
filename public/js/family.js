@@ -17,7 +17,7 @@ async function loadChildren() {
 /** Yangi baho yoki dars boshlanganda sahifa oʻzi yangilanadi. */
 function autoRefresh(ctx) {
   let timer;
-  const off = state.bus.on((m) => { if (m.t !== 'update' && m.t !== 'lesson') return; clearTimeout(timer); timer = setTimeout(ctx.refresh, 400); });
+  const off = state.bus.on((m) => { if (m.t !== 'notif' && m.t !== 'lesson') return; clearTimeout(timer); timer = setTimeout(ctx.refresh, 400); });
   ctx.onLeave(() => { off(); clearTimeout(timer); });
 }
 const switcher = () => {
@@ -139,42 +139,40 @@ async function cameraPage(ctx) {
       <div class="cam-bar"><span class="conn" id="conn">${icon('signal', 18)}<span>Ulanmoqda</span></span><span class="grow"></span><label class="camsel"><span class="sr">Tasvir sifati</span><select id="q"><option value="high">Yuqori</option><option value="mid">Oʻrta</option><option value="low">Tejamkor</option></select></label><button class="iconbtn" id="mute" aria-label="Ovoz" aria-pressed="true" title="Ovoz">${icon('mute')}</button><button class="iconbtn" id="report" aria-label="Muammo haqida xabar berish" title="Muammo haqida xabar berish">${icon('flag')}</button><button class="iconbtn" id="fs" aria-label="Toʻliq ekran" title="Toʻliq ekran">${icon('full')}</button></div></div>
       <div class="grid g2 cam-now"><div class="nowbox" id="now"><small>${kid.first}</small><b>–</b></div><div class="nowbox"><small>Shu darsdagi diqqat</small><b id="sc">–</b></div></div></div>
     <div class="cam-side">${card('', html`<p class="online" id="online"><i></i><span>Kamera oʻchiq</span></p><dl class="facts"><div><dt>Sinf</dt><dd>${s.class_name}</dd></div><div><dt>Kurs</dt><dd>${s.course || `English ${s.level}`}</dd></div><div><dt>Oʻqituvchi</dt><dd>${full(r.teacher)}</dd></div><div><dt>Dars</dt><dd id="topic">${r.live?.topic || slotNow?.subject || '–'}</dd></div><div><dt>Boshlandi</dt><dd id="from">${r.live ? clock(r.live.started) : slotNow?.start || '–'}</dd></div><div><dt>Tugaydi</dt><dd>${slotNow?.finish || '–'}</dd></div></dl>`)}
-      ${card('Kirish nazorati', html`<ul class="access"><li>${icon(denied ? 'lock' : 'check', 20)}<div><b>${denied ? 'Ruxsat yopiq' : 'Ruxsatingiz faol'}</b><small>${full(state.user)}</small></div></li><li>${icon('eye', 20)}<div><b id="priv">Boshqa oʻquvchilar yuzi yashirilgan</b><small>Faqat farzandingiz ochiq koʻrinadi</small></div></li><li>${icon('shield', 20)}<div><b>Yozib olinmaydi</b><small>Video va ovoz saqlanmaydi</small></div></li><li>${icon('clock', 20)}<div><b>Koʻrish qayd etiladi</b><small>Maktab kim va qachon kirganini koʻradi</small></div></li></ul>`)}</div></div>`);
+      ${card('Kirish nazorati', html`<ul class="access"><li>${icon(denied ? 'lock' : 'check', 20)}<div><b>${denied ? 'Ruxsat yopiq' : 'Ruxsatingiz faol'}</b><small>${full(state.user)}</small></div></li><li>${icon('eye', 20)}<div><b id="priv">Boshqa oʻquvchilar yuzi yashirilgan</b><small>Faqat farzandingiz ochiq koʻrinadi</small></div></li><li>${icon('shield', 20)}<div><b>Yozib olinmaydi</b><small>Faqat oxirgi kadr turadi va dars tugagach oʻchadi</small></div></li><li>${icon('clock', 20)}<div><b>Koʻrish qayd etiladi</b><small>Maktab kim va qachon kirganini koʻradi</small></div></li></ul>`)}</div></div>`);
   bindSwitcher(ctx);
   const cv = $('#cv'), g = cv.getContext('2d'), off = $('#off'), box = $('#cam'), q = $('#q'), muteBtn = $('#mute');
-  let lastAt = 0, busy = false, times = [], audio = null, playAt = 0, hasAudio = false;
-  const watch = (onNow = true) => state.bus?.socket.send(JSON.stringify({ t: 'watch', on: onNow && !denied, quality: q.value, audio: !!audio }));
+  let lastAt = 0, token = '', since = '', status = '', wake = () => {}, audio = null, playAt = 0, nextSample = null, hasAudio = false;
   const conn = (text, cls) => { $('#conn').className = 'conn ' + cls; $('#conn span').textContent = tr(text); };
-  const idle = async () => {
+  const idle = () => {
     cv.hidden = true; $('#tag').hidden = true; off.hidden = false;
     $('#now').className = 'nowbox'; $('#now b').textContent = '–'; $('#sc').textContent = '–';
     $('#online').className = 'online'; $('#online span').textContent = tr('Kamera oʻchiq');
-    conn(state.bus?.socket.ready ? 'Serverga ulangan' : 'Aloqa yoʻq', state.bus?.socket.ready ? 'ok' : 'bad');
+    conn('Serverga ulangan', 'ok');
     if (denied) { $('p', off).textContent = tr(denied); return; }
-    await loadChildren().catch(() => {});
-    if (!ctx.live()) return;
-    const l = state.children.find((c) => c.id === state.childId)?.live;
+    const l = status === 'waiting';
     $('p', off).textContent = tr(l ? 'Dars boshlangan, kamera ulanishi kutilmoqda…' : 'Hozir dars yoʻq. Oʻqituvchi darsni boshlasa, sinf shu yerda koʻrinadi.');
-    if (l) { $('#topic').textContent = l.topic; $('#from').textContent = clock(l.started); }
   };
-  await idle();
-  if (!ctx.live()) return;
+  idle();
 
-  const sound = (m) => {
-    if (!audio) return;
-    const f = mulaw(new Uint8Array(m, 8)), b = audio.createBuffer(1, f.length, 16000), n = audio.createBufferSource();
+  /* Har kadrda ovozning oxirgi bir necha soniyasi keladi, faqat hali eshitilmagan qismi ijro etiladi. */
+  const sound = (bytes, pos) => {
+    if (!audio || !bytes.length) return;
+    const end = pos + bytes.length;
+    if (nextSample == null || nextSample < pos || nextSample > end) nextSample = Math.max(pos, end - 24000);
+    const chunk = bytes.subarray(nextSample - pos);
+    if (!chunk.length) return;
+    nextSample = end;
+    const f = mulaw(chunk), b = audio.createBuffer(1, f.length, 16000), n = audio.createBufferSource();
     b.copyToChannel(f, 0);
     n.buffer = b; n.connect(audio.destination);
-    if (playAt < audio.currentTime + 0.05 || playAt > audio.currentTime + 1.5) playAt = audio.currentTime + 0.25;
+    if (playAt < audio.currentTime + 0.05) playAt = audio.currentTime + 0.4;
+    if (playAt > audio.currentTime + 5) return;
     n.start(playAt); playAt += b.duration;
   };
-  const onMsg = async (m) => {
-    if (!(m instanceof ArrayBuffer)) { if (m.t === 'lesson') idle(); return; }
-    const len = new DataView(m).getUint32(0);
-    if (len === 0) return sound(m);
-    if (busy) return;
-    busy = true;
+  const show = async (m, took) => {
     try {
+      const len = new DataView(m).getUint32(0);
       const h = JSON.parse(new TextDecoder().decode(new Uint8Array(m, 4, len)));
       const sc = h.scores.find((x) => x.sid === state.childId);
       if (!sc) return;
@@ -183,6 +181,7 @@ async function cameraPage(ctx) {
       const base = await take(h.base), mine = [];
       for (const p of h.patches) { const b = await take(p.len); if (p.sid === state.childId) mine.push([p, b]); }
       if (!ctx.live()) return;
+      if (h.audioLen) sound(new Uint8Array(m, o, h.audioLen), h.audioPos);
       if (cv.width !== h.w || cv.height !== h.h) { cv.width = h.w; cv.height = h.h; }
       g.drawImage(base, 0, 0);
       for (const [p, b] of mine) g.drawImage(b, p.box.x, p.box.y, p.box.w, p.box.h);
@@ -201,30 +200,54 @@ async function cameraPage(ctx) {
       $('#topic').textContent = h.topic; $('#from').textContent = clock(h.started);
       $('#priv').textContent = tr(h.blur ? 'Boshqa oʻquvchilar yuzi yashirilgan' : 'Yuz yashirish oʻqituvchi tomonidan oʻchirilgan');
       hasAudio = h.audio;
-      lastAt = Date.now(); times = [...times.filter((t) => t > lastAt - 4000), lastAt];
-      const fps = times.length / 4;
-      conn(fps > 1 ? 'Aloqa yaxshi' : 'Aloqa sekin', fps > 1 ? 'ok' : 'mid');
+      lastAt = Date.now();
+      conn(took < 1500 ? 'Aloqa yaxshi' : 'Aloqa sekin', took < 1500 ? 'ok' : 'mid');
       $('#online').className = 'online on'; $('#online span').textContent = tr('Kamera onlayn');
       cv.hidden = false; off.hidden = true; $('#tag').hidden = false;
-    } catch (e) { console.error(e); } finally { busy = false; }
+    } catch (e) { console.error(e); }
   };
-  const offs = [state.bus.on(onMsg), state.bus.onOpen(() => watch())];
-  watch();
-  const t = setInterval(() => {
-    $('#clock').textContent = new Date().toTimeString().slice(0, 8);
-    if (lastAt && Date.now() - lastAt > 10000) { lastAt = 0; idle(); } else if (!state.bus.socket.ready) conn('Aloqa yoʻq', 'bad');
-  }, 1000);
-  ctx.onLeave(() => { offs.forEach((f) => f()); clearInterval(t); watch(false); audio?.close(); audio = null; if (document.fullscreenElement) document.exitFullscreen(); });
+  const rest = (ms) => new Promise((ok) => { const t = setTimeout(ok, ms); wake = () => { clearTimeout(t); ok(); }; });
+  (async () => {
+    while (ctx.live() && !denied) {
+      if (document.hidden) { await rest(1500); continue; }
+      let pause = state.pace.frame * { high: 1, mid: 2, low: 4 }[q.value];
+      try {
+        const from = performance.now();
+        const r = await fetch(`/api/live/frame?student=${state.childId}&t=${encodeURIComponent(token)}&since=${since}&audio=${audio ? 1 : 0}`);
+        const live = r.headers.get('X-Live');
+        if (!ctx.live()) return;
+        token = r.headers.get('X-Live-Token') || (live === 'frame' || live === 'same' || live === 'waiting' ? token : '');
+        if (r.status === 401) return state.onAuthLost();
+        if (r.status === 200) {
+          const m = await r.arrayBuffer();
+          status = 'frame';
+          since = JSON.parse(new TextDecoder().decode(new Uint8Array(m, 4, new DataView(m).getUint32(0)))).at;
+          await show(m, performance.now() - from);
+        } else if (live !== 'same') {
+          const was = status;
+          status = live || 'none';
+          if (status === 'denied' || status === 'room') { lastAt = 0; if (was !== status) return ctx.refresh(); }
+          if (!lastAt || Date.now() - lastAt > 10000) { lastAt = 0; if (was !== status || !cv.hidden) idle(); }
+          if (status !== 'waiting') pause = state.pace.idle;
+          else pause = Math.max(pause, 1000);
+        }
+      } catch { conn('Aloqa yoʻq', 'bad'); pause = 3000; }
+      await rest(pause);
+    }
+  })();
+  const again = denied && setTimeout(ctx.refresh, 20000); // ruxsat qaytsa oʻzi ochiladi
+  const t = setInterval(() => { $('#clock').textContent = new Date().toTimeString().slice(0, 8); }, 1000);
+  ctx.onLeave(() => { clearInterval(t); clearTimeout(again); wake(); audio?.close(); audio = null; if (document.fullscreenElement) document.exitFullscreen(); });
 
-  q.addEventListener('change', () => watch());
+  q.addEventListener('change', () => wake());
   muteBtn.addEventListener('click', () => {
     if (audio) { audio.close(); audio = null; } else {
       if (lastAt && !hasAudio) return toast('Oʻqituvchi bu darsda ovozni uzatmayapti.', 'info');
-      audio = new AudioContext(); playAt = 0;
+      audio = new AudioContext(); playAt = 0; nextSample = null;
     }
     muteBtn.setAttribute('aria-pressed', audio ? 'false' : 'true');
     put(muteBtn, icon(audio ? 'sound' : 'mute'));
-    watch();
+    wake();
   });
   $('#fs').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen();

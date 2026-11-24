@@ -1,145 +1,126 @@
-import { WebSocketServer } from 'ws';
-import { userFromCookie } from './auth.js';
-import { all, get, run, tx, today } from './db.js';
-
 /**
- * Jonli dars va tezkor xabarlar. Oʻqituvchi brauzeri kadr yuboradi, server uni faqat
- * xotirada ruxsatli ota-onalarga uzatadi. Video ham, ovoz ham hech qayerga yozilmaydi.
+ * Jonli dars (WebSocket siz, serverless muhitda ham ishlaydi).
+ * Oʻqituvchi brauzeri eng oxirgi kadrni yuboradi, ota-ona brauzeri uni soʻrab oladi.
+ * Kadrlar yozib borilmaydi: har yangi kadr eskisini almashtiradi, dars tugagach oʻchadi.
  *
- * Kadr:  [uint32 sarlavha uzunligi][JSON sarlavha][asosiy JPEG][yuz boʻlaklari...]
- * Ovoz:  [uint32 0][uint32 dars][8 bitli mu-law, 16 kHz]
+ * Kadr: [uint32 sarlavha uzunligi][JSON sarlavha][asosiy JPEG][yuz boʻlaklari...][ovoz]
  * Boʻlak: bitta bolaning ochiq yuzi. U faqat oʻz ota-onasiga yuboriladi.
  */
-const wss = new WebSocketServer({ noServer: true, maxPayload: 3 * 1024 * 1024 });
-const sockets = new Set();
-const lastFrame = new Map(); // lesson_id -> vaqt
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { all, get, run, today } from './db.js';
+import { Err, bad, deny, on } from './core.js';
+import { dropFrame, getFrame, putFrame } from './files.js';
+import { notifyFamily } from './notify.js';
 
-export const openLesson = (classId) =>
-  get('SELECT * FROM lessons WHERE class_id = ? AND ended IS NULL ORDER BY id DESC', classId);
-export const isStreaming = (lessonId) => Date.now() - (lastFrame.get(lessonId) || 0) < 10000;
-export const viewersOf = (classId) => new Set([...sockets].filter((s) => s.watch && s.kids?.some((k) => k.class_id === classId && k.camera)).map((s) => s.user.id)).size;
-
-/** Huquq oʻzgarganda ulanish uziladi; brauzer yangi huquq bilan qayta ulanadi. */
-export function closeUser(userId) {
-  for (const s of sockets) if (s.user.id === userId) { if (s.kids) s.kids = []; s.lesson = null; s.close(4001, 'access changed'); }
+const MAX_LESSON = 4 * 3600e3, BEAT_MS = 20000, VIEW_MS = 25000;
+export const openWhere = () => Date.now() - MAX_LESSON;
+export const openLesson = (classId) => get('SELECT * FROM lessons WHERE class_id = ? AND ended IS NULL AND started > ? ORDER BY id DESC LIMIT 1', classId, openWhere());
+export const streaming = (l) => !l.ended && Date.now() - l.beat < BEAT_MS;
+export async function endLesson(id) {
+  await run('UPDATE lessons SET ended = ? WHERE id = ? AND ended IS NULL', Date.now(), id);
+  await dropFrame(id);
 }
-export function sendUser(userId, msg) {
-  const text = JSON.stringify(msg);
-  for (const s of sockets) if (s.user.id === userId) s.send(text);
-}
-function notifyKids(match, msg) {
-  const text = JSON.stringify(msg);
-  for (const s of sockets) if (s.kids?.some(match) || (s.self && match(s.self))) s.send(text);
-}
-export const pushClass = (classId, msg) => notifyKids((k) => k.class_id === classId, msg);
-export const pushStudent = (studentId, msg) => notifyKids((k) => k.id === studentId, msg);
-
-/** Xona kamerasi oʻchirilsa, oʻqituvchining keshlangan ruxsati ham bekor boʻladi. */
-export const recheckLessons = () => { for (const s of sockets) s.lesson = null; };
-
-export function upgrade(req, socket, head) {
-  const user = userFromCookie(req.headers.cookie);
-  let sameOrigin = false;
-  try { sameOrigin = new URL(req.headers.origin).host === req.headers.host; } catch { /* origin yoʻq */ }
-  if (!user || !sameOrigin) return socket.destroy();
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    ws.user = user;
-    ws.alive = true;
-    ws.on('pong', () => { ws.alive = true; });
-    ws.on('error', () => {});
-    ws.on('close', () => sockets.delete(ws));
-    if (user.role === 'parent') {
-      ws.kids = all(`SELECT s.id, s.class_id, l.camera FROM links l JOIN students s ON s.id = l.student_id
-        WHERE l.parent_id = ? AND l.status = 'approved' AND s.status = 'approved'`, user.id);
-    } else if (user.role === 'student') ws.self = get('SELECT id, class_id FROM students WHERE id = ?', user.id);
-    ws.on('message', (data, binary) => {
-      try {
-        if (!binary) onText(ws, JSON.parse(data));
-        else if (user.role === 'teacher') onBinary(ws, data);
-      } catch (e) { console.error('live:', e.message); }
-    });
-    sockets.add(ws);
-  });
+/** Dars id -> hozir koʻrayotganlar soni. */
+export async function viewers() {
+  return new Map((await all('SELECT lesson_id, COUNT(*) n FROM camera_views WHERE seen > ? GROUP BY lesson_id', Date.now() - VIEW_MS)).map((r) => [r.lesson_id, r.n]));
 }
 
-function lessonOf(ws, id) {
-  if (ws.lesson?.id === id && Date.now() - ws.lesson.checked < 5000) return ws.lesson;
-  const l = get(`SELECT l.*, COALESCE(r.camera_on, 1) camera_on FROM lessons l JOIN classes c ON c.id = l.class_id LEFT JOIN rooms r ON r.id = c.room_id
-    WHERE l.id = ? AND l.ended IS NULL AND c.teacher_id = ?`, Number(id), ws.user.id);
-  ws.lesson = l ? { ...l, checked: Date.now() } : null;
-  return ws.lesson;
+/* ---------- qisqa muddatli ruxsat: har kadrda bazaga murojaat qilmaslik uchun ---------- */
+let key;
+async function liveKey() {
+  if (key) return key;
+  await run(`INSERT INTO settings VALUES ('live_key', ?) ON CONFLICT (k) DO NOTHING`, randomBytes(32).toString('hex'));
+  key = Buffer.from((await get(`SELECT v FROM settings WHERE k = 'live_key'`)).v, 'hex');
+  return key;
 }
-const watchers = (classId) => [...sockets].filter((s) => s.watch && s.kids?.some((k) => k.class_id === classId && k.camera));
+const mac = async (body) => createHmac('sha256', await liveKey()).update(body).digest();
+async function sign(data, ms) {
+  const body = Buffer.from(JSON.stringify({ ...data, exp: Date.now() + ms })).toString('base64url');
+  return `${body}.${(await mac(body)).toString('base64url')}`;
+}
+async function open(token, kind) {
+  const [body, sig] = String(token || '').split('.');
+  if (!body || !sig) return null;
+  const a = Buffer.from(sig, 'base64url'), b = await mac(body);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  const d = JSON.parse(Buffer.from(body, 'base64url'));
+  return d.kind === kind && d.exp > Date.now() ? d : null;
+}
 
-function onBinary(ws, buf) {
-  const hl = buf.readUInt32BE(0);
-  if (hl === 0) {
-    const lesson = lessonOf(ws, buf.readUInt32BE(4));
-    if (!lesson?.camera_on) return;
-    for (const s of watchers(lesson.class_id)) if (s.watch.audio && s.bufferedAmount < 400000) s.send(buf);
-    return;
+/* ---------- oʻqituvchi ---------- */
+const int = (n) => Math.max(0, Math.min(1000, Math.trunc(Number(n)) || 0));
+on('POST', '/live/beat', ['teacher'], async (c) => {
+  const l = await get(`SELECT l.*, COALESCE(r.camera_on, 1) camera_on FROM lessons l JOIN classes c ON c.id = l.class_id LEFT JOIN rooms r ON r.id = c.room_id
+    WHERE l.id = ? AND c.teacher_id = ? AND l.ended IS NULL AND l.started > ?`, Number(c.body.lesson) || 0, c.user.id, openWhere());
+  if (!l) throw new Err(409, 'Dars yakunlangan.');
+  if (l.camera_on) await run('UPDATE lessons SET beat = ? WHERE id = ?', Date.now(), l.id);
+  const raw = Array.isArray(c.body.items) ? c.body.items.slice(0, 200) : [];
+  if (raw.length) {
+    const ids = new Set((await all(`SELECT id FROM students WHERE class_id = ? AND status = 'approved'`, l.class_id)).map((r) => r.id));
+    const items = [...new Map(raw.filter((i) => ids.has(i?.sid)).map((i) => [i.sid, { sid: i.sid, samples: int(i.samples), seen: int(i.seen), attentive: int(i.attentive), arrived: !!i.arrived }])).values()];
+    const json = JSON.stringify(items);
+    await run(`INSERT INTO activity SELECT ?, sid, ?::int, samples, seen, attentive FROM json_to_recordset(?::json) AS x(sid int, samples int, seen int, attentive int)
+      ON CONFLICT (lesson_id, student_id, minute) DO UPDATE SET samples = activity.samples + excluded.samples, seen = activity.seen + excluded.seen, attentive = activity.attentive + excluded.attentive`,
+    l.id, Math.floor((Date.now() - l.started) / 60000), json);
+    const date = today();
+    const came = await all(`INSERT INTO attendance SELECT sid, ?::text, 'present', 'camera' FROM json_to_recordset(?::json) AS x(sid int, arrived boolean) WHERE arrived
+      ON CONFLICT (student_id, date) DO NOTHING RETURNING student_id id`, date, json);
+    for (const a of came) await notifyFamily(a.id, `att:${date}:${a.id}`, 'attendance', { status: 'present', date }, '#/attendance', false);
   }
-  const head = JSON.parse(buf.subarray(4, 4 + hl));
-  const lesson = lessonOf(ws, head.lesson);
-  if (!lesson) return;
-  if (!lesson.camera_on) {
-    if (!ws.warned || Date.now() - ws.warned > 10000) { ws.warned = Date.now(); ws.send(JSON.stringify({ t: 'camera-off' })); }
-    return;
+  return { camera_on: !!l.camera_on, viewers: (await viewers()).get(l.id) || 0, token: l.camera_on ? await sign({ kind: 'send', lesson: l.id }, 25000) : null };
+});
+
+on('POST', '/live/frame', null, async (c) => {
+  const t = await open(c.q.get('t'), 'send');
+  if (!t) deny();
+  const buf = await c.bytes(4e6);
+  if (buf.length < 8 || buf.readUInt32BE(0) > buf.length - 4) bad('Kadr notoʻgʻri.');
+  await putFrame(t.lesson, buf);
+  return {};
+});
+
+/* ---------- ota-ona ---------- */
+async function grant(c) {
+  if (!c.user) throw new Err(401, 'Avval tizimga kiring.');
+  if (c.user.role !== 'parent') deny();
+  const sid = Number(c.q.get('student')) || 0;
+  const s = await get(`SELECT s.id, s.class_id, l.camera, COALESCE(r.camera_on, 1) camera_on FROM links l JOIN students s ON s.id = l.student_id JOIN classes c ON c.id = s.class_id
+    LEFT JOIN rooms r ON r.id = c.room_id WHERE l.parent_id = ? AND s.id = ? AND l.status = 'approved' AND s.status = 'approved'`, c.user.id, sid);
+  if (!s) deny();
+  if (!s.camera || !s.camera_on) return { why: s.camera ? 'room' : 'denied' };
+  const l = await openLesson(s.class_id);
+  if (!l) return { why: 'none' };
+  await run('INSERT INTO camera_views (user_id, lesson_id, at, seen) VALUES (?,?,?,?) ON CONFLICT (user_id, lesson_id) DO UPDATE SET seen = excluded.seen', c.user.id, l.id, Date.now(), Date.now());
+  const data = { kind: 'view', sid: s.id, lesson: l.id, topic: l.topic, started: l.started };
+  return { data, token: await sign(data, 10000) };
+}
+const nothing = (why, token) => new Response(null, { status: 204, headers: { 'X-Live': why, 'Cache-Control': 'no-store', ...(token ? { 'X-Live-Token': token } : {}) } });
+
+on('GET', '/live/frame', null, async (c) => {
+  let token = null;
+  let t = await open(c.q.get('t'), 'view');
+  if (!t || t.sid !== Number(c.q.get('student'))) {
+    const g = await grant(c);
+    if (g.why) return nothing(g.why);
+    t = g.data; token = g.token;
   }
-  lastFrame.set(lesson.id, Date.now());
+  const f = await getFrame(t.lesson);
+  if (!f || Date.now() - f.at > 12000) return nothing('waiting', token);
+  if (String(f.at) === c.q.get('since')) return nothing('same', token);
+  const buf = f.buf, hl = buf.readUInt32BE(0), head = JSON.parse(buf.subarray(4, 4 + hl));
   const base = buf.subarray(4 + hl, 4 + hl + head.base);
   let off = 4 + hl + head.base;
   const patches = head.patches.map((p) => { const d = buf.subarray(off, off + p.len); off += p.len; return { ...p, d }; });
-  for (const s of watchers(lesson.class_id)) {
-    s.frame = (s.frame || 0) + 1;
-    if (s.bufferedAmount > 400000 || s.frame % s.watch.every) continue; // sekin internet yoki tejamkor rejim
-    const ids = s.kids.filter((k) => k.class_id === lesson.class_id && k.camera).map((k) => k.id);
-    if (s.viewed !== lesson.id) {
-      s.viewed = lesson.id;
-      run('INSERT OR IGNORE INTO camera_views (user_id, lesson_id, at) VALUES (?,?,?)', s.user.id, lesson.id, Date.now());
-    }
-    const mine = patches.filter((p) => ids.includes(p.sid));
-    const out = Buffer.from(JSON.stringify({
-      lesson: lesson.id, class_id: lesson.class_id, topic: lesson.topic, started: lesson.started, w: head.w, h: head.h, base: head.base,
-      blur: head.blur !== false, audio: !!head.audio, at: head.at,
-      faces: head.faces.filter((f) => ids.includes(f.sid)),
-      scores: head.scores.filter((f) => ids.includes(f.sid)),
-      patches: mine.map(({ d, ...p }) => p),
-    }));
-    const len = Buffer.alloc(4);
-    len.writeUInt32BE(out.length);
-    s.send(Buffer.concat([len, out, base, ...mine.map((p) => p.d)]));
-  }
-}
-
-const int = (n) => Math.max(0, Math.min(1000, Math.trunc(Number(n)) || 0));
-let onArrive = () => {};
-export const setArriveHandler = (fn) => { onArrive = fn; };
-
-function onText(ws, m) {
-  if (m.t === 'watch' && ws.kids) {
-    ws.watch = m.on ? { every: { high: 1, mid: 2, low: 4 }[m.quality] || 1, audio: !!m.audio } : null;
-    return;
-  }
-  if (m.t !== 'activity' || ws.user.role !== 'teacher') return;
-  const lesson = lessonOf(ws, m.lesson);
-  if (!lesson) return;
-  const minute = Math.floor((Date.now() - lesson.started) / 60000);
-  const ids = new Set(all(`SELECT id FROM students WHERE class_id = ? AND status = 'approved'`, lesson.class_id).map((r) => r.id));
-  const arrived = [];
-  tx(() => {
-    for (const i of m.items) {
-      if (!ids.has(i.sid)) continue;
-      run(`INSERT INTO activity VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO UPDATE SET
-        samples = samples + excluded.samples, seen = seen + excluded.seen, attentive = attentive + excluded.attentive`,
-      lesson.id, i.sid, minute, int(i.samples), int(i.seen), int(i.attentive));
-      if (i.arrived && run(`INSERT OR IGNORE INTO attendance VALUES (?, ?, 'present', 'camera')`, i.sid, today()).changes) arrived.push(i.sid);
-    }
+  const mine = patches.filter((p) => p.sid === t.sid);
+  const sound = c.q.get('audio') === '1' && head.audioLen ? buf.subarray(off, off + head.audioLen) : Buffer.alloc(0);
+  const out = Buffer.from(JSON.stringify({
+    at: f.at, topic: t.topic, started: t.started, w: head.w, h: head.h, base: head.base, blur: head.blur !== false, audio: !!head.audio,
+    audioPos: head.audioPos, audioLen: sound.length,
+    faces: head.faces.filter((x) => x.sid === t.sid), scores: head.scores.filter((x) => x.sid === t.sid), patches: mine.map(({ d, ...p }) => p),
+  }));
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(out.length);
+  return new Response(Buffer.concat([len, out, base, ...mine.map((p) => p.d), sound]), {
+    headers: { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Live': 'frame', ...(token ? { 'X-Live-Token': token } : {}) },
   });
-  arrived.forEach((sid) => onArrive(sid, 'present'));
-}
-
-setInterval(() => {
-  for (const s of sockets) { if (!s.alive) { s.terminate(); continue; } s.alive = false; s.ping(); }
-  run('UPDATE lessons SET ended = ? WHERE ended IS NULL AND started < ?', Date.now(), Date.now() - 4 * 3600e3);
-}, 30000).unref();
+});

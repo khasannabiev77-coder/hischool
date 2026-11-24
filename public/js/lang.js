@@ -292,7 +292,7 @@ Tugaydi|Ends|Конец
 Boshqa oʻquvchilar yuzi yashirilgan|Other students’ faces are hidden|Лица других учеников скрыты
 Faqat farzandingiz ochiq koʻrinadi|Only your child is shown clearly|Открыто виден только ваш ребёнок
 Yozib olinmaydi|Not recorded|Не записывается
-Video va ovoz saqlanmaydi|Video and sound are not stored|Видео и звук не хранятся
+Faqat oxirgi kadr turadi va dars tugagach oʻchadi|Only the latest frame is kept and it is deleted after the lesson|Хранится только последний кадр, после урока он удаляется
 Koʻrish qayd etiladi|Viewing is logged|Просмотры фиксируются
 Maktab kim va qachon kirganini koʻradi|The school sees who watched and when|Школа видит, кто и когда смотрел
 Kirish nazorati|Access control|Контроль доступа
