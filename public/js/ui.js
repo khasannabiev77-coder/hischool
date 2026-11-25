@@ -10,7 +10,7 @@ export const $ = (q, el = document) => el.querySelector(q);
 export const $$ = (q, el = document) => [...el.querySelectorAll(q)];
 export const put = (el, tpl) => { el.innerHTML = part(tpl); translate(el); animate(el); return el; };
 
-export const state = { user: null, classes: [], rooms: [], classId: null, pending: 0, children: [], childId: null, onAuthLost: () => {}, bus: null, pace: { poll: 4000, frame: 300, beat: 3000, idle: 3000 } };
+export const state = { user: null, classes: [], rooms: [], classId: null, pending: 0, children: [], childId: null, onAuthLost: () => {}, bus: null, waiting: null, pace: { poll: 4000, frame: 300, beat: 3000, idle: 3000 } };
 
 export async function api(method, url, body) {
   let r;

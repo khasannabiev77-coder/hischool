@@ -1,8 +1,8 @@
-/* Admin paneli. Sinf ichidagi ishlar (jurnal, vazifa, test, jadval) routes-school.js da umumiy. */
-import { all, get, run, insert, today, daysAgo, lastMonths, teacherCode } from './db.js';
-import { V, bad, missing, on } from './core.js';
+/* Admin paneli. Guruh ichidagi ishlar (jurnal, vazifa, test, jadval) routes-school.js da umumiy. */
+import { all, get, run, insert, today, daysAgo, lastMonths, tx } from './db.js';
+import { LEVELS, V, bad, missing, on } from './core.js';
 import { openWhere, streaming, viewers } from './live.js';
-import { notifyMany } from './notify.js';
+import { notify, notifyFamily, notifyMany } from './notify.js';
 import { removePhoto } from './files.js';
 import { RATING, withRating } from './routes-auth.js';
 import { deleteStudent } from './routes-school.js';
@@ -13,8 +13,8 @@ const group = (rows, key) => { const m = new Map(); for (const r of rows) m.set(
 on('GET', '/a/overview', ADM, async () => {
   const months = lastMonths(6), days = Array.from({ length: 14 }, (_, i) => daysAgo(13 - i));
   const [t, lessons, created, att, gr, vis] = await Promise.all([
-    get(`SELECT (SELECT COUNT(*) FROM students) students, (SELECT COUNT(*) FROM students WHERE status = 'approved') active, (SELECT COUNT(*) FROM users WHERE role = 'teacher') teachers,
-      (SELECT COUNT(*) FROM users WHERE role = 'parent') parents, (SELECT COUNT(*) FROM classes) classes, (SELECT COUNT(*) FROM rooms) rooms, (SELECT COUNT(*) FROM messages) messages,
+    get(`SELECT (SELECT COUNT(*) FROM students) students, (SELECT COUNT(*) FROM students WHERE status = 'approved') active, (SELECT COUNT(*) FROM users WHERE role = 'teacher' AND status = 'approved') teachers,
+      (SELECT COUNT(*) FROM users WHERE role = 'parent' AND status = 'approved') parents, (SELECT COUNT(*) FROM classes) classes, (SELECT COUNT(*) FROM rooms) rooms, (SELECT COUNT(*) FROM messages) messages,
       (SELECT COUNT(*) FROM camera_reports WHERE resolved = 0) reports`),
     all('SELECT * FROM lessons WHERE ended IS NULL AND started > ?', openWhere()),
     all(`SELECT u.created FROM users u JOIN students s ON s.id = u.id WHERE s.status = 'approved'`),
@@ -33,12 +33,75 @@ on('GET', '/a/overview', ADM, async () => {
   };
 });
 
+/* -- roʻyxatdan oʻtish soʻrovlari -- */
+on('GET', '/a/requests', ADM, async () => {
+  const [users, links, kids, groups] = await Promise.all([
+    all(`SELECT u.id, u.role, u.first, u.last, u.phone, u.telegram, u.created, s.address, s.parent_phone, s.photo IS NOT NULL has_photo
+      FROM users u LEFT JOIN students s ON s.id = u.id WHERE u.status = 'pending' ORDER BY u.id`),
+    all(`SELECT l.id, l.parent_id, l.child_first, l.child_last, l.name_key, l.student_id, p.first, p.last, p.phone, p.status FROM links l JOIN users p ON p.id = l.parent_id WHERE l.status = 'pending' ORDER BY l.id`),
+    all(`SELECT s.id, u.first, u.last, s.parent_phone, s.name_key, c.name class_name FROM students s JOIN users u ON u.id = s.id LEFT JOIN classes c ON c.id = s.class_id ORDER BY u.first, u.last`),
+    all(`SELECT c.id, c.name, t.first || ' ' || t.last teacher FROM classes c JOIN users t ON t.id = c.teacher_id ORDER BY c.name`),
+  ]);
+  // Bir farzand uchun bir nechta nomzod boʻlishi mumkin; administrator bittasini tanlaydi.
+  const asks = new Map();
+  for (const l of links) if (!asks.has(l.parent_id + l.name_key)) asks.set(l.parent_id + l.name_key, l);
+  const suggest = (phone, key) => kids.find((k) => k.parent_phone === phone && k.name_key === key) || kids.find((k) => k.name_key === key) || kids.find((k) => k.parent_phone === phone);
+  const ask = (l) => { const k = suggest(l.phone, l.name_key); return { id: l.id, child_first: l.child_first, child_last: l.child_last, match: k ? { id: k.id, phone_ok: k.parent_phone === l.phone, name_ok: k.name_key === l.name_key } : null }; };
+  const all_ = [...asks.values()];
+  return {
+    students: users.filter((u) => u.role === 'student'), teachers: users.filter((u) => u.role === 'teacher'),
+    parents: users.filter((u) => u.role === 'parent').map((u) => ({ ...u, asks: all_.filter((l) => l.parent_id === u.id).map(ask) })),
+    extra: all_.filter((l) => l.status === 'approved').map((l) => ({ ...ask(l), parent: { id: l.parent_id, first: l.first, last: l.last, phone: l.phone } })),
+    kids: kids.map(({ id, first, last, class_name }) => ({ id, first, last, class_name })), groups,
+  };
+});
+/** Ota-onani tanlangan oʻquvchiga bogʻlaydi, shu farzand boʻyicha boshqa nomzodlarni olib tashlaydi. */
+async function linkChild(linkId, studentId) {
+  const l = (await get('SELECT * FROM links WHERE id = ?', linkId)) || missing();
+  if (!await get('SELECT 1 FROM students WHERE id = ?', studentId)) bad('Oʻquvchini tanlang.', 'student_id');
+  const have = await get('SELECT id FROM links WHERE parent_id = ? AND student_id = ?', l.parent_id, studentId);
+  const id = have?.id ?? l.id;
+  if (!have) await run('UPDATE links SET student_id = ? WHERE id = ?', studentId, l.id);
+  await run(`UPDATE links SET status = 'approved' WHERE id = ?`, id);
+  await run(`DELETE FROM links WHERE parent_id = ? AND name_key = ? AND status = 'pending'`, l.parent_id, l.name_key);
+  const s = await get('SELECT first, last FROM users WHERE id = ?', studentId);
+  await notify(l.parent_id, 'linked:' + id, 'linked', { name: `${s.first} ${s.last}` }, '#/dashboard');
+}
+on('POST', '/a/requests/:id/approve', ADM, async (c) => {
+  const u = (await get(`SELECT * FROM users WHERE id = ? AND status = 'pending'`, Number(c.p.id))) || missing(), b = c.body;
+  if (u.role === 'student') {
+    const k = (await get('SELECT id, name FROM classes WHERE id = ?', Number(b.class_id) || 0)) || bad('Guruhni tanlang.', 'class_id');
+    const level = V.oneOf(b.level ?? 'A1', LEVELS, 'level', 'Daraja');
+    await tx(async () => {
+      await run(`UPDATE students SET status = 'approved', class_id = ?, level = ? WHERE id = ?`, k.id, level, u.id);
+      await run(`UPDATE users SET status = 'approved' WHERE id = ?`, u.id);
+    });
+    await notifyFamily(u.id, 'approved', 'approved', { class: k.name }, '#/dashboard');
+    return {};
+  }
+  await tx(async () => {
+    await run(`UPDATE users SET status = 'approved' WHERE id = ?`, u.id);
+    if (u.role === 'parent' && b.student_id) {
+      const l = (await get(`SELECT id FROM links WHERE parent_id = ? AND status = 'pending' ORDER BY (student_id = ?) DESC NULLS LAST, id`, u.id, Number(b.student_id))) || bad('Oʻquvchini tanlang.', 'student_id');
+      await linkChild(l.id, Number(b.student_id));
+    }
+  });
+  await notify(u.id, 'welcome', 'welcome', {}, '#/dashboard');
+  return {};
+});
+on('POST', '/a/links/:id/approve', ADM, async (c) => { await tx(() => linkChild(Number(c.p.id), Number(c.body.student_id) || 0)); return {}; });
+on('DELETE', '/a/links/:id', ADM, async (c) => {
+  const l = (await get('SELECT * FROM links WHERE id = ?', Number(c.p.id))) || missing();
+  await run('DELETE FROM links WHERE id = ? OR (parent_id = ? AND name_key = ? AND status = \'pending\')', l.id, l.parent_id, l.name_key);
+  return {};
+});
+
 /* -- odamlar -- */
 on('GET', '/a/students', ADM, () => all(`SELECT u.id, u.first, u.last, u.login, u.phone, u.telegram, s.parent_phone, s.level, s.status, s.class_id, c.name class_name, s.photo IS NOT NULL has_photo
-  FROM students s JOIN users u ON u.id = s.id JOIN classes c ON c.id = s.class_id ORDER BY s.status = 'approved', u.last, u.first`));
+  FROM students s JOIN users u ON u.id = s.id JOIN classes c ON c.id = s.class_id WHERE s.status = 'approved' ORDER BY u.last, u.first`));
 on('GET', '/a/parents', ADM, async () => {
   const [parents, links] = await Promise.all([
-    all(`SELECT id, first, last, login, phone, photo IS NOT NULL has_photo FROM users WHERE role = 'parent' ORDER BY last, first`),
+    all(`SELECT id, first, last, login, phone, photo IS NOT NULL has_photo FROM users WHERE role = 'parent' AND status = 'approved' ORDER BY last, first`),
     all(`SELECT l.parent_id, l.id, l.status, l.camera, l.child_first, l.child_last, l.student_id, u.first, u.last, c.name class_name FROM links l
       LEFT JOIN students s ON s.id = l.student_id LEFT JOIN users u ON u.id = s.id LEFT JOIN classes c ON c.id = s.class_id ORDER BY l.id`),
   ]);
@@ -47,7 +110,7 @@ on('GET', '/a/parents', ADM, async () => {
 });
 on('GET', '/a/teachers', ADM, async () => {
   const [list, classes] = await Promise.all([
-    all(`SELECT t.id, t.first, t.last, t.login, t.phone, t.position, t.experience, t.bio, t.public, t.photo IS NOT NULL has_photo, ${RATING} FROM users t WHERE t.role = 'teacher' ORDER BY t.last, t.first`),
+    all(`SELECT t.id, t.first, t.last, t.login, t.phone, t.position, t.experience, t.bio, t.public, t.photo IS NOT NULL has_photo, ${RATING} FROM users t WHERE t.role = 'teacher' AND t.status = 'approved' ORDER BY t.last, t.first`),
     all('SELECT teacher_id, name FROM classes ORDER BY name'),
   ]);
   const by = group(classes, 'teacher_id');
@@ -64,12 +127,11 @@ on('DELETE', '/a/users/:id', ADM, async (c) => {
   const u = (await get('SELECT * FROM users WHERE id = ?', Number(c.p.id))) || missing();
   if (u.role === 'admin') bad('Admin hisobini oʻchirib boʻlmaydi.');
   if (u.role === 'student') { await deleteStudent(u.id); return {}; }
-  if (u.role === 'teacher' && await get('SELECT 1 FROM classes WHERE teacher_id = ?', u.id)) bad('Oʻqituvchining sinflari bor. Avval ularni boshqa oʻqituvchiga bering.');
+  if (u.role === 'teacher' && await get('SELECT 1 FROM classes WHERE teacher_id = ?', u.id)) bad('Oʻqituvchining guruhlari bor. Avval ularni boshqa oʻqituvchiga bering.');
   await run('DELETE FROM users WHERE id = ?', u.id);
   await removePhoto(u.photo);
   return {};
 });
-on('POST', '/a/code', ADM, async () => ({ code: await teacherCode(true) }));
 
 /* -- xonalar va kameralar -- */
 async function roomList() {
@@ -104,8 +166,8 @@ on('DELETE', '/a/messages/:id', ADM, async (c) => { await run('DELETE FROM messa
 on('POST', '/a/notify', ADM, async (c) => {
   const title = V.text(c.body.title, 'title', 'Sarlavha', 2, 100), text = V.text(c.body.text, 'text', 'Matn', 2, 600), to = String(c.body.to ?? '');
   let rows;
-  if (to === 'all') rows = await all(`SELECT id FROM users WHERE role <> 'admin'`);
-  else if (['parent', 'student', 'teacher'].includes(to)) rows = await all('SELECT id FROM users WHERE role = ?', to);
+  if (to === 'all') rows = await all(`SELECT id FROM users WHERE role <> 'admin' AND status = 'approved'`);
+  else if (['parent', 'student', 'teacher'].includes(to)) rows = await all(`SELECT id FROM users WHERE role = ? AND status = 'approved'`, to);
   else if (/^class:\d+$/.test(to)) {
     rows = await all(`SELECT id FROM students WHERE class_id = ?1 AND status = 'approved' UNION SELECT l.parent_id FROM links l JOIN students s ON s.id = l.student_id
       WHERE s.class_id = ?1 AND s.status = 'approved' AND l.status = 'approved'`, Number(to.slice(6)));

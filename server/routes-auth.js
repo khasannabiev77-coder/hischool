@@ -1,26 +1,25 @@
 /* Roʻyxatdan oʻtish, kirish, sessiyalar, shaxsiy sozlamalar va ochiq sahifa. */
-import { timingSafeEqual, createHash } from 'node:crypto';
-import { all, get, run, insert, tx, nameKey, teacherCode, today } from './db.js';
+import { all, get, run, insert, tx, nameKey, today } from './db.js';
 import * as A from './auth.js';
 import { Err, V, bad, deny, missing, on, canSee } from './core.js';
 import { savePhoto, readPhoto, removePhoto } from './files.js';
-import { notify, notifyMany, poll } from './notify.js';
+import { notifyMany, poll } from './notify.js';
 
 async function createUser(role, f) {
   const login = await A.newLogin(), password = A.newPassword();
-  const id = await insert('INSERT INTO users (role, login, pass, first, last, phone, telegram, created) VALUES (?,?,?,?,?,?,?,?)',
-    role, login, A.hash(password), f.first, f.last, f.phone ?? null, f.telegram ?? null, Date.now());
+  const id = await insert('INSERT INTO users (status, role, login, pass, first, last, phone, telegram, created) VALUES (?,?,?,?,?,?,?,?,?)',
+    'pending', role, login, A.hash(password), f.first, f.last, f.phone ?? null, f.telegram ?? null, Date.now());
   return { id, login, password };
 }
 
 export async function me(u) {
   const [unread, s] = await Promise.all([
     get('SELECT COUNT(*) n FROM notifications WHERE user_id = ? AND read = 0', u.id),
-    u.role === 'student' ? get('SELECT status, photo IS NOT NULL has_photo FROM students WHERE id = ?', u.id) : null,
+    u.role === 'student' ? get('SELECT photo IS NOT NULL has_photo FROM students WHERE id = ?', u.id) : null,
   ]);
   return {
     id: u.id, role: u.role, login: u.login, first: u.first, last: u.last, phone: u.phone, telegram: u.telegram, unread: unread.n,
-    has_photo: s ? s.has_photo : !!(u.has_photo ?? u.photo), ...(s ? { status: s.status } : {}),
+    has_photo: s ? s.has_photo : !!(u.has_photo ?? u.photo), status: u.status,
     ...(u.role === 'teacher' ? { position: u.position, experience: u.experience, bio: u.bio, public: u.public } : {}),
   };
 }
@@ -34,16 +33,15 @@ async function candidates(phone, key) {
   }
   return [];
 }
-async function askTeacher(sid, name, kind) {
-  const t = await get('SELECT c.teacher_id id FROM students s JOIN classes c ON c.id = s.class_id WHERE s.id = ?', sid);
-  if (t) await notify(t.id, `request:${kind}:${name}:${sid}`, 'request', { name, kind }, '#/students');
+/** Yangi soʻrov haqida barcha administratorlarga xabar. */
+async function askAdmin(id, name, kind) {
+  await notifyMany((await all(`SELECT id FROM users WHERE role = 'admin'`)).map((a) => ({ user_id: a.id, key: `request:${kind}:${id}`, type: 'request', data: { name, kind }, link: '#/requests' })));
 }
-async function addLink(parentId, phone, first, last, who) {
+async function addLink(parentId, phone, first, last) {
   const key = nameKey(first, last), ids = await candidates(phone, key);
   if (!ids.length && await get('SELECT 1 FROM links WHERE parent_id = ? AND student_id IS NULL AND name_key = ?', parentId, key)) return;
   for (const sid of ids.length ? ids : [null]) {
-    const done = await all('INSERT INTO links (parent_id, student_id, child_first, child_last, name_key) VALUES (?,?,?,?,?) ON CONFLICT (parent_id, student_id) DO NOTHING RETURNING id', parentId, sid, first, last, key);
-    if (sid && done.length) await askTeacher(sid, who, 'parent');
+    await run('INSERT INTO links (parent_id, student_id, child_first, child_last, name_key) VALUES (?,?,?,?,?) ON CONFLICT (parent_id, student_id) DO NOTHING', parentId, sid, first, last, key);
   }
 }
 /** Ota-ona boladan oldin roʻyxatdan oʻtgan boʻlsa, kutayotgan soʻrovni bogʻlaydi. */
@@ -54,7 +52,6 @@ async function attachWaiting(sid, parentPhone, key) {
   }
 }
 
-on('GET', '/classes', null, () => all(`SELECT c.id, c.name, t.first || ' ' || t.last teacher FROM classes c JOIN users t ON t.id = c.teacher_id ORDER BY c.name`));
 
 async function regGate(c) {
   if (await A.limited('reg:' + c.ip, 150)) throw new Err(429, 'Juda koʻp urinish. Bir soatdan keyin qayta urinib koʻring.');
@@ -72,11 +69,10 @@ on('POST', '/register/student', null, async (c) => {
   if (b.contact === 'telegram') f.telegram = V.telegram(b.telegram, 'telegram'); else f.phone = V.phone(b.phone, 'phone');
   const address = V.text(b.address, 'address', 'Turar joy', 5, 160);
   const parentPhone = V.phone(b.parent_phone, 'parent_phone');
-  const cls = (await get('SELECT id FROM classes WHERE id = ?', Number(b.class_id) || 0)) || bad('Sinfni tanlang.', 'class_id');
   const photo = V.photo(b.photo), descriptor = V.descriptor(b.descriptor);
   if (b.consent !== true) bad('Rasmdan foydalanishga rozilik kerak.', 'consent');
   const key = nameKey(f.first, f.last);
-  if (await get('SELECT 1 FROM students WHERE class_id = ? AND name_key = ? AND parent_phone = ?', cls.id, key, parentPhone)) {
+  if (await get('SELECT 1 FROM students WHERE name_key = ? AND parent_phone = ?', key, parentPhone)) {
     bad('Bu oʻquvchi allaqachon roʻyxatdan oʻtgan. Login va parol bilan kiring.', 'first');
   }
   const file = await savePhoto(photo);
@@ -84,12 +80,12 @@ on('POST', '/register/student', null, async (c) => {
   try {
     u = await tx(async () => {
       const x = await createUser('student', f);
-      await run('INSERT INTO students (id, class_id, address, parent_phone, name_key, photo, descriptor) VALUES (?,?,?,?,?,?,?)', x.id, cls.id, address, parentPhone, key, file, descriptor);
+      await run('INSERT INTO students (id, address, parent_phone, name_key, photo, descriptor) VALUES (?,?,?,?,?,?)', x.id, address, parentPhone, key, file, descriptor);
       await attachWaiting(x.id, parentPhone, key);
       return x;
     });
   } catch (e) { await removePhoto(file); throw e; }
-  await askTeacher(u.id, `${f.first} ${f.last}`, 'student');
+  await askAdmin(u.id, `${f.first} ${f.last}`, 'student');
   return finish(c, u);
 });
 
@@ -99,19 +95,19 @@ on('POST', '/register/parent', null, async (c) => {
   const f = { first: V.name(b.first, 'first', 'Ism'), last: V.name(b.last, 'last', 'Familiya'), phone: V.phone(b.phone, 'phone') };
   const cf = V.name(b.child_first, 'child_first', 'Farzand ismi'), cl = V.name(b.child_last, 'child_last', 'Farzand familiyasi');
   if (await get(`SELECT 1 FROM users WHERE role = 'parent' AND phone = ?`, f.phone)) bad('Bu raqam bilan ota-ona roʻyxatdan oʻtgan. Login va parol bilan kiring.', 'phone');
-  return finish(c, await tx(async () => { const u = await createUser('parent', f); await addLink(u.id, f.phone, cf, cl, `${f.first} ${f.last}`); return u; }));
+  const u = await tx(async () => { const x = await createUser('parent', f); await addLink(x.id, f.phone, cf, cl); return x; });
+  await askAdmin(u.id, `${f.first} ${f.last}`, 'parent');
+  return finish(c, u);
 });
 
 on('POST', '/register/teacher', null, async (c) => {
   await regGate(c);
   const b = c.body;
-  if (await A.limited('code:' + c.ip, 10)) throw new Err(429, 'Kod koʻp marta xato kiritildi. 15 daqiqadan keyin urinib koʻring.');
   const f = { first: V.name(b.first, 'first', 'Ism'), last: V.name(b.last, 'last', 'Familiya'), phone: V.phone(b.phone, 'phone') };
-  const cls = V.className(b.class_name, 'class_name');
-  const digest = (s) => createHash('sha256').update(String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '')).digest();
-  if (!timingSafeEqual(digest(b.code), digest(await teacherCode()))) { await A.hit('code:' + c.ip, 900e3); bad('Maktab kodi notoʻgʻri.', 'code'); }
   if (await get(`SELECT 1 FROM users WHERE role = 'teacher' AND phone = ?`, f.phone)) bad('Bu raqam bilan oʻqituvchi roʻyxatdan oʻtgan.', 'phone');
-  return finish(c, await tx(async () => { const u = await createUser('teacher', f); await run('INSERT INTO classes (name, teacher_id) VALUES (?, ?)', cls, u.id); return u; }));
+  const u = await createUser('teacher', f);
+  await askAdmin(u.id, `${f.first} ${f.last}`, 'teacher');
+  return finish(c, u);
 });
 
 on('POST', '/login', null, async (c) => {
@@ -168,7 +164,8 @@ on('POST', '/notifications/read', [], async (c) => { await run('UPDATE notificat
 on('POST', '/children', ['parent'], async (c) => {
   const f = V.name(c.body.child_first, 'child_first', 'Farzand ismi'), l = V.name(c.body.child_last, 'child_last', 'Farzand familiyasi');
   if ((await get('SELECT COUNT(*) n FROM links WHERE parent_id = ?', c.user.id)).n >= 10) bad('Juda koʻp soʻrov yuborilgan.', 'child_first');
-  await tx(() => addLink(c.user.id, c.user.phone, f, l, `${c.user.first} ${c.user.last}`));
+  await tx(() => addLink(c.user.id, c.user.phone, f, l));
+  await askAdmin(`${c.user.id}:${nameKey(f, l)}`, `${c.user.first} ${c.user.last}`, 'parent');
   return {};
 });
 
@@ -193,8 +190,8 @@ export const RATING = `(SELECT COUNT(*) FROM ratings r WHERE r.teacher_id = t.id
 export const withRating = ({ rate_n: n, rate_good: good, ...t }) => ({ ...t, rating: n ? { n, pct: Math.round((100 * good) / n) } : null });
 on('GET', '/public', null, async () => {
   const [teachers, stats] = await Promise.all([
-    all(`SELECT t.id, t.first, t.last, t.position, t.experience, t.bio, t.photo IS NOT NULL has_photo, ${RATING} FROM users t WHERE t.role = 'teacher' AND t.public = 1 ORDER BY t.experience DESC NULLS LAST LIMIT 8`),
-    get(`SELECT (SELECT COUNT(*) FROM students WHERE status = 'approved') students, (SELECT COUNT(*) FROM lessons) lessons, (SELECT COUNT(*) FROM users WHERE role = 'teacher') teachers`),
+    all(`SELECT t.id, t.first, t.last, t.position, t.experience, t.bio, t.photo IS NOT NULL has_photo, ${RATING} FROM users t WHERE t.role = 'teacher' AND t.public = 1 AND t.status = 'approved' ORDER BY t.experience DESC NULLS LAST LIMIT 8`),
+    get(`SELECT (SELECT COUNT(*) FROM students WHERE status = 'approved') students, (SELECT COUNT(*) FROM lessons) lessons, (SELECT COUNT(*) FROM users WHERE role = 'teacher' AND status = 'approved') teachers`),
   ]);
   return { teachers: teachers.map(withRating), stats };
 });

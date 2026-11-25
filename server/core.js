@@ -53,8 +53,8 @@ export const V = {
     return v;
   },
   className(v, field) {
-    const s = String(v ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
-    if (!/^[\p{L}\d][\p{L}\d "ʻ-]{0,15}$/u.test(s)) bad('Sinf nomini kiriting. Masalan: 7-A', field);
+    const s = String(v ?? '').trim().replace(/\s+/g, ' ').replace(/['`‘’]/g, 'ʻ');
+    if (!/^[\p{L}\d][\p{L}\d .:+"ʻ-]{0,29}$/u.test(s)) bad('Guruh nomini kiriting. Masalan: Elementary-1', field);
     return s;
   },
   descriptor(v) {
@@ -71,7 +71,7 @@ export const V = {
   },
 };
 
-/* ---------- ruxsatlar: admin hammasini, oʻqituvchi faqat oʻz sinfini boshqaradi ---------- */
+/* ---------- ruxsatlar: admin hammasini, oʻqituvchi faqat oʻz guruhini boshqaradi ---------- */
 const own = (sql) => async (u, id) => (await get(`${sql} AND (c.teacher_id = ? OR ?::int = 1)`, Number(id) || 0, u.id, u.role === 'admin' ? 1 : 0)) || missing();
 export const ownClass = own('SELECT c.* FROM classes c WHERE c.id = ?');
 export const ownStudent = own(`SELECT s.*, u.first, u.last, c.name class_name, c.teacher_id FROM students s JOIN users u ON u.id = s.id
@@ -107,6 +107,7 @@ export async function handle(c, pathname) {
     if (r.method !== c.method) continue;
     if (r.roles) {
       if (!c.user) throw new Err(401, 'Avval tizimga kiring.');
+      if (c.user.status !== 'approved' && pathname !== '/api/logout') throw new Err(403, 'Soʻrovingizni administrator hali tasdiqlamagan.');
       if (r.roles.length && !r.roles.includes(c.user.role)) deny();
     }
     c.p = m.groups || {};

@@ -5,7 +5,7 @@ import os from 'node:os';
 import { exec } from 'node:child_process';
 import path from 'node:path';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
-import { ROOT, close, get, teacherCode } from './db.js';
+import { ROOT, close, get } from './db.js';
 import { api, ensureAdmin } from './app.js';
 import { VENDOR, SECURITY } from './static.js';
 
@@ -80,7 +80,7 @@ for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(s, () => { close().f
 
 console.log('\n  Baza ochilmoqda (birinchi marta 20 soniyagacha)…');
 const password = await ensureAdmin().catch((e) => { if (e.code !== 'LOCKED') throw e; console.error(`\n  ${e.message}\n`); process.exit(1); });
-const code = await teacherCode(), { n } = await get('SELECT COUNT(*) n FROM users');
+const { n } = await get('SELECT COUNT(*) n FROM users');
 server.listen(PORT, HOST, () => {
   const proto = tls ? 'https' : 'http';
   console.log(`\n  HISCHOOL ishga tushdi\n  Shu kompyuterda:  ${proto}://localhost:${PORT}`);
@@ -89,7 +89,6 @@ server.listen(PORT, HOST, () => {
       if (i.family === 'IPv4' && !i.internal) console.log(`  Wi-Fi orqali:     ${proto}://${i.address}:${PORT}`);
     }
   }
-  console.log(`\n  Oʻqituvchi roʻyxatdan oʻtishi uchun maktab kodi:  ${code}`);
   if (password) console.log(`\n  ADMIN yaratildi. Login: HS-ADMIN   Parol: ${password}\n  Parol faqat hozir koʻrsatiladi, yozib oling.\n`);
   console.log(`  Foydalanuvchilar: ${n}\n`);
   if (process.env.HS_OPEN && process.platform === 'win32') exec(`start "" ${proto}://localhost:${PORT}`);

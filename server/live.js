@@ -82,7 +82,7 @@ on('POST', '/live/frame', null, async (c) => {
 /* ---------- ota-ona ---------- */
 async function grant(c) {
   if (!c.user) throw new Err(401, 'Avval tizimga kiring.');
-  if (c.user.role !== 'parent') deny();
+  if (c.user.role !== 'parent' || c.user.status !== 'approved') deny();
   const sid = Number(c.q.get('student')) || 0;
   const s = await get(`SELECT s.id, s.class_id, l.camera, COALESCE(r.camera_on, 1) camera_on FROM links l JOIN students s ON s.id = l.student_id JOIN classes c ON c.id = s.class_id
     LEFT JOIN rooms r ON r.id = c.room_id WHERE l.parent_id = ? AND s.id = ? AND l.status = 'approved' AND s.status = 'approved'`, c.user.id, sid);

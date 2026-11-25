@@ -6,7 +6,7 @@ Oʻquvchi, oʻqituvchi va ota-onani bitta tizimga birlashtiradigan ingliz tili t
 
 1. [Node.js](https://nodejs.org) 22.12 yoki yangiroq versiyasi kerak.
 2. `start.bat` faylini oching (yoki `npm install && npm start`). Manzil: http://localhost:3000
-3. Birinchi ishga tushganda oynada **admin login-paroli** va oʻqituvchilar uchun **maktab kodi** chiqadi. Admin paroli faqat bir marta koʻrsatiladi.
+3. Birinchi ishga tushganda oynada **admin login-paroli** chiqadi. U faqat bir marta koʻrsatiladi.
 
 Namuna maʼlumotlar bilan koʻrish: `demo.bat` (yoki `npm run demo`), http://localhost:3100
 
@@ -21,17 +21,17 @@ Namuna rejimi faqat shu kompyuterda ochiladi.
 
 ## Rollar
 
-- **Admin:** oʻquvchi, ota-ona, oʻqituvchi, sinf, xona, kamera, jadval, davomat, baho, intizom, vazifa va xabarlarni boshqaradi.
-- **Oʻqituvchi:** oʻz sinflari, jurnal, testlar, vazifalar, fikrlar, jonli dars.
-- **Ota-ona:** faqat tasdiqlangan farzandining maʼlumoti va sinf kamerasi.
+- **Admin:** oʻquvchi, ota-ona, oʻqituvchi, guruh, xona, kamera, jadval, davomat, baho, intizom, vazifa va xabarlarni boshqaradi.
+- **Oʻqituvchi:** oʻz guruhlari, jurnal, testlar, vazifalar, fikrlar, jonli dars.
+- **Ota-ona:** faqat tasdiqlangan farzandining maʼlumoti va dars kamerasi.
 - **Oʻquvchi:** faqat oʻz natijalari.
 
 ## Tartib
 
-1. Admin xonalarni qoʻshadi, oʻqituvchiga maktab kodini beradi.
-2. Oʻqituvchi roʻyxatdan oʻtadi va sinf ochadi.
-3. Oʻquvchi (rasmi bilan) va ota-ona roʻyxatdan oʻtadi.
-4. Oʻqituvchi yoki admin ularni tasdiqlaydi. Tasdiqsiz maʼlumot ham, kamera ham ochilmaydi.
+1. Oʻqituvchi, oʻquvchi (rasmi bilan) va ota-ona roʻyxatdan oʻtadi. Kod ham, guruh ham soʻralmaydi.
+2. Soʻrov administratorga boradi. **Soʻrovlar** boʻlimida u tasdiqlaydi: oʻquvchiga guruh va daraja beradi, ota-onani farzandiga bogʻlaydi.
+3. Tasdiqlanguncha hech kim ilovaga kira olmaydi, faqat kutish sahifasini koʻradi.
+4. Guruhni oʻqituvchi (Sozlamalar) yoki administrator (Guruhlar) ochadi. Xonalarni administrator qoʻshadi.
 5. Oʻqituvchi «Jonli dars» boʻlimida darsni boshlaydi.
 
 ## Kamera
@@ -54,7 +54,7 @@ npx vercel deploy --prod
 
 Neon `DATABASE_URL` ni oʻzi qoʻshadi. Rasmlar ham, jonli darsning oxirgi kadri ham Postgres da turadi (kadrlar jadvali jurnalsiz, zaxiraga tushmaydi). Saytga `HS-ADMIN` bilan kirasiz.
 
-Bepul Hobby rejasi Vercel qoidasiga koʻra shaxsiy, notijorat loyihalar uchun. Pullik maktab uchun Pro reja kerak.
+Bepul Hobby rejasi Vercel qoidasiga koʻra shaxsiy, notijorat loyihalar uchun. Pullik toʻgarak uchun Pro reja kerak.
 
 ## Netlify ga joylashtirish
 
@@ -69,13 +69,13 @@ Boshqa Postgres (Neon, Supabase) ishlatmoqchi boʻlsangiz, `DATABASE_URL` ni kir
 | --- | --- |
 | `ADMIN_PASSWORD` | Birinchi admin paroli (Netlify da majburiy) |
 | `DATABASE_URL` | Boshqa Postgres (ixtiyoriy) |
-| `HS_TZ` | Maktab vaqt mintaqasi, odatda `Asia/Tashkent` |
+| `HS_TZ` | Toʻgarak vaqt mintaqasi, odatda `Asia/Tashkent` |
 
 Netlify da bilish kerak:
 
 - Netlify Database faqat kreditli rejalarda bor (2025-yil sentabrdan keyingi yangi akkauntlarda standart, bepul reja ham kiradi).
 - WebSocket yoʻq: bildirishnomalar 45 soniyada bir, jonli kadr 1–2 soniyada bir yangilanadi. Lokal serverda tezroq.
-- Jonli dars trafik sarflaydi: bitta ota-ona uchun soatiga taxminan 100 MB. Hech kim koʻrmayotganda kadr yuborilmaydi. Katta maktab uchun bepul reja yetmasligi mumkin.
+- Jonli dars trafik sarflaydi: bitta ota-ona uchun soatiga taxminan 100 MB. Hech kim koʻrmayotganda kadr yuborilmaydi. Katta toʻgarak uchun bepul reja yetmasligi mumkin.
 
 ## Oʻz serveringiz
 

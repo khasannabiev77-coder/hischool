@@ -13,10 +13,11 @@ export function describe({ type, data: d }) {
     case 'homework': return { icon: 'book', tone: 'blue', text: `${t('Yangi uy vazifasi')}: ${d.title}` };
     case 'live': return { icon: 'camera', tone: 'bad', text: `${t('Jonli dars boshlandi')}: ${d.topic}` };
     case 'soon': return { icon: 'clock', tone: 'warn', text: `${t('Bugungi dars 10 daqiqadan keyin boshlanadi.')} ${d.subject}, ${d.time}` };
-    case 'approved': return { icon: 'check', tone: 'good', text: t('{name} {class} sinfiga qabul qilindi.') };
+    case 'approved': return { icon: 'check', tone: 'good', text: t('{name} {class} guruhiga qabul qilindi.') };
     case 'linked': return { icon: 'check', tone: 'good', text: t('{name} profilingizga ulandi.') };
     case 'level': return { icon: 'up', tone: 'good', text: t('{name} darajasi endi {level}.') };
-    case 'request': return { icon: 'people', tone: 'warn', text: t(d.kind === 'parent' ? 'Ota-ona soʻrovi: {name}' : 'Yangi oʻquvchi: {name}') };
+    case 'request': return { icon: 'people', tone: 'warn', text: t({ parent: 'Ota-ona soʻrovi: {name}', teacher: 'Yangi oʻqituvchi: {name}' }[d.kind] || 'Yangi oʻquvchi: {name}') };
+    case 'welcome': return { icon: 'check', tone: 'good', text: t('Administrator profilingizni tasdiqladi.') };
     case 'camreport': return { icon: 'flag', tone: 'warn', text: t('{class} kamerasi haqida murojaat: {name}') };
     case 'contact': return { icon: 'mail', tone: 'blue', text: t('Saytdan yangi xabar: {name}') };
     case 'message': return { icon: 'bell', tone: 'blue', text: d.title, more: d.text };

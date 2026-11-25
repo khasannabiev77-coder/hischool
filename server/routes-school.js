@@ -1,9 +1,9 @@
-/* Taʼlim jarayoni: hisobot (ota-ona, oʻquvchi) va oʻqituvchi/admin uchun sinf ishlari. */
-import { all, get, run, insert, tx, today, daysAgo, lastMonths, teacherCode } from './db.js';
+/* Taʼlim jarayoni: hisobot (ota-ona, oʻquvchi) va oʻqituvchi/admin uchun guruh ishlari. */
+import { all, get, run, insert, tx, today, daysAgo, lastMonths } from './db.js';
 import * as A from './auth.js';
 import { V, bad, deny, missing, on, canSee, ownClass, ownStudent, ownHomework, ownAssessment, ownSchedule, ownLesson, ownLink, LEVELS, SKILLS } from './core.js';
 import { endLesson, openLesson, openWhere, streaming, viewers } from './live.js';
-import { notify, notifyFamily, notifyClassFamilies, notifyMany } from './notify.js';
+import { notifyFamily, notifyClassFamilies, notifyMany } from './notify.js';
 import { removePhoto } from './files.js';
 import { RATING, withRating } from './routes-auth.js';
 
@@ -12,7 +12,7 @@ export const pct = (r) => (r && r.samples > 0 && r.seen > 0 ? Math.min(100, Math
 const lessonRow = (l) => ({ id: l.id, date: l.date, topic: l.topic, started: l.started, score: pct(l) });
 const liveOf = (l) => (l ? { id: l.id, topic: l.topic, started: l.started, streaming: streaming(l) } : null);
 
-/** Sinf id -> ochiq dars. */
+/** Guruh id -> ochiq dars. */
 async function liveMap() {
   return new Map((await all('SELECT * FROM lessons WHERE ended IS NULL AND started > ? ORDER BY id', openWhere())).map((l) => [l.class_id, liveOf(l)]));
 }
@@ -113,8 +113,7 @@ const scope = (u) => (u.role === 'admin' ? ['1 = 1', []] : ['c.teacher_id = ?1',
 on('GET', '/t/classes', T, async (c) => {
   const [w, a] = scope(c.user);
   const [pending, rooms, classes, live, seen] = await Promise.all([
-    get(`SELECT (SELECT COUNT(*) FROM students s JOIN classes c ON c.id = s.class_id WHERE ${w} AND s.status = 'pending')
-      + (SELECT COUNT(*) FROM links l JOIN students s ON s.id = l.student_id JOIN classes c ON c.id = s.class_id WHERE ${w} AND l.status = 'pending') n`, ...a),
+    c.user.role === 'admin' ? get(`SELECT (SELECT COUNT(*) FROM users WHERE status = 'pending') + (SELECT COUNT(DISTINCT (l.parent_id, l.name_key)) FROM links l JOIN users p ON p.id = l.parent_id WHERE l.status = 'pending' AND p.status = 'approved') n`) : { n: 0 },
     all('SELECT * FROM rooms ORDER BY name'),
     all(`SELECT c.id, c.name, c.course, c.room_id, c.teacher_id, t.first || ' ' || t.last teacher, r.name room, COALESCE(r.camera_on, 1) camera_on,
       (SELECT COUNT(*) FROM students s WHERE s.class_id = c.id AND s.status = 'approved') students
@@ -123,29 +122,28 @@ on('GET', '/t/classes', T, async (c) => {
   ]);
   return { pending: pending.n, rooms, classes: classes.map((x) => { const l = live.get(x.id) || null; return { ...x, live: l, viewers: (l && seen.get(l.id)) || 0 }; }) };
 });
-const checkTeacher = async (id) => { if (!await get(`SELECT 1 FROM users WHERE id = ? AND role = 'teacher'`, Number(id) || 0)) bad('Oʻqituvchini tanlang.', 'teacher_id'); return Number(id); };
+const checkTeacher = async (id) => { if (!await get(`SELECT 1 FROM users WHERE id = ? AND role = 'teacher' AND status = 'approved'`, Number(id) || 0)) bad('Oʻqituvchini tanlang.', 'teacher_id'); return Number(id); };
 const checkRoom = async (id) => (id ? (await get('SELECT id FROM rooms WHERE id = ?', Number(id) || 0))?.id ?? null : null);
 on('POST', '/t/classes', T, async (c) => {
   const name = V.className(c.body.name, 'name');
   const tid = c.user.role === 'admin' ? await checkTeacher(c.body.teacher_id) : c.user.id;
-  if (await get('SELECT 1 FROM classes WHERE name = ? AND teacher_id = ?', name, tid)) bad('Bu sinf allaqachon bor.', 'name');
+  if (await get('SELECT 1 FROM classes WHERE name = ? AND teacher_id = ?', name, tid)) bad('Bu guruh allaqachon bor.', 'name');
   return { id: await insert('INSERT INTO classes (name, teacher_id, course) VALUES (?, ?, ?)', name, tid, V.text(c.body.course, 'course', 'Kurs', 0, 60)) };
 });
 on('PATCH', '/t/classes/:id', T, async (c) => {
   const k = await ownClass(c.user, c.p.id), b = c.body;
   const tid = c.user.role === 'admin' && b.teacher_id ? await checkTeacher(b.teacher_id) : k.teacher_id;
   const name = V.className(b.name ?? k.name, 'name');
-  if (await get('SELECT 1 FROM classes WHERE name = ? AND teacher_id = ? AND id <> ?', name, tid, k.id)) bad('Bu sinf allaqachon bor.', 'name');
+  if (await get('SELECT 1 FROM classes WHERE name = ? AND teacher_id = ? AND id <> ?', name, tid, k.id)) bad('Bu guruh allaqachon bor.', 'name');
   await run('UPDATE classes SET name = ?, course = ?, room_id = ?, teacher_id = ? WHERE id = ?', name, V.text(b.course ?? k.course, 'course', 'Kurs', 0, 60), await checkRoom(b.room_id), tid, k.id);
   return {};
 });
 on('DELETE', '/t/classes/:id', T, async (c) => {
   const k = await ownClass(c.user, c.p.id);
-  if (await get('SELECT 1 FROM students WHERE class_id = ?', k.id)) bad('Sinfda oʻquvchi bor. Avval ularni boshqa sinfga oʻtkazing.');
+  if (await get('SELECT 1 FROM students WHERE class_id = ?', k.id)) bad('Guruhda oʻquvchi bor. Avval ularni boshqa guruhga oʻtkazing.');
   await run('DELETE FROM classes WHERE id = ?', k.id);
   return {};
 });
-on('GET', '/t/code', T, async () => ({ code: await teacherCode() }));
 
 on('GET', '/t/dashboard/:id', T, async (c) => {
   const k = await ownClass(c.user, c.p.id), from = daysAgo(29);
@@ -164,23 +162,7 @@ on('GET', '/t/dashboard/:id', T, async (c) => {
   return { class: k, live: liveOf(live), students: students.map((s) => ({ activity: null, behaviour: null, homework: null, test: null, ...s, ...g.get(s.id), ...t.get(s.id) })), lessons: lessons.map(lessonRow).reverse(), schedule };
 });
 
-/* -- soʻrovlar -- */
-on('GET', '/t/pending', T, async (c) => {
-  const [w, a] = scope(c.user);
-  const [students, parents] = await Promise.all([
-    all(`SELECT s.id, u.first, u.last, u.phone, u.telegram, s.address, s.parent_phone, c.name class_name, s.photo IS NOT NULL has_photo
-      FROM students s JOIN users u ON u.id = s.id JOIN classes c ON c.id = s.class_id WHERE ${w} AND s.status = 'pending' ORDER BY s.id`, ...a),
-    all(`SELECT l.id, p.first, p.last, p.phone, l.child_first, l.child_last, su.first s_first, su.last s_last, c.name class_name, p.phone = s.parent_phone phone_ok, l.name_key = s.name_key name_ok
-      FROM links l JOIN users p ON p.id = l.parent_id JOIN students s ON s.id = l.student_id JOIN users su ON su.id = s.id JOIN classes c ON c.id = s.class_id WHERE ${w} AND l.status = 'pending' ORDER BY l.id`, ...a),
-  ]);
-  return { students, parents };
-});
-on('POST', '/t/students/:id/approve', T, async (c) => {
-  const s = await ownStudent(c.user, c.p.id);
-  await run(`UPDATE students SET status = 'approved' WHERE id = ?`, s.id);
-  await notifyFamily(s.id, 'approved', 'approved', { class: s.class_name }, '#/dashboard');
-  return {};
-});
+/* -- oʻquvchilar -- */
 on('PATCH', '/t/students/:id', T, async (c) => {
   const s = await ownStudent(c.user, c.p.id), b = c.body;
   const level = V.oneOf(b.level ?? s.level, LEVELS, 'level', 'Daraja');
@@ -195,12 +177,6 @@ export async function deleteStudent(id) {
   await removePhoto(s?.photo);
 }
 on('DELETE', '/t/students/:id', T, async (c) => { await deleteStudent((await ownStudent(c.user, c.p.id)).id); return {}; });
-on('POST', '/t/links/:id/approve', T, async (c) => {
-  const l = await ownLink(c.user, c.p.id);
-  await run(`UPDATE links SET status = 'approved' WHERE id = ?`, l.id);
-  await notify(l.parent_id, 'linked:' + l.id, 'linked', { name: `${l.child_first} ${l.child_last}` }, '#/dashboard');
-  return {};
-});
 on('PUT', '/t/links/:id/camera', T, async (c) => { const l = await ownLink(c.user, c.p.id); await run('UPDATE links SET camera = ? WHERE id = ?', c.body.on ? 1 : 0, l.id); return {}; });
 on('DELETE', '/t/links/:id', T, async (c) => { const l = await ownLink(c.user, c.p.id); await run('DELETE FROM links WHERE id = ?', l.id); return {}; });
 
@@ -335,7 +311,7 @@ on('POST', '/t/schedule', T, async (c) => {
   const k = await ownClass(c.user, c.body.class_id), b = c.body;
   const start = V.time(b.start, 'start'), finish = V.time(b.finish, 'finish'), dow = V.int(b.dow, 'dow', 'Kun', 1, 7), subject = V.text(b.subject, 'subject', 'Dars', 2, 60);
   if (finish <= start) bad('Tugash vaqti boshlanishidan keyin boʻlsin.', 'finish');
-  if (await get('SELECT 1 FROM schedule WHERE class_id = ? AND dow = ? AND start < ? AND finish > ?', k.id, dow, finish, start)) bad('Bu vaqtda sinfning boshqa darsi bor.', 'start');
+  if (await get('SELECT 1 FROM schedule WHERE class_id = ? AND dow = ? AND start < ? AND finish > ?', k.id, dow, finish, start)) bad('Bu vaqtda guruhning boshqa darsi bor.', 'start');
   return { id: await insert('INSERT INTO schedule (class_id, dow, start, finish, subject, room_id) VALUES (?,?,?,?,?,?)', k.id, dow, start, finish, subject, await checkRoom(b.room_id)) };
 });
 on('DELETE', '/t/schedule/:id', T, async (c) => { await run('DELETE FROM schedule WHERE id = ?', (await ownSchedule(c.user, c.p.id)).id); return {}; });

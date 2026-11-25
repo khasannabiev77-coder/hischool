@@ -46,7 +46,7 @@ export async function userFromCookie(header) {
   const token = /(?:^|;\s*)hs=([\w-]+)/.exec(header || '')?.[1];
   if (!token) return null;
   const key = sha(token);
-  const u = await get(`SELECT u.id, u.role, u.login, u.first, u.last, u.phone, u.telegram, u.position, u.experience, u.bio, u.public, u.photo IS NOT NULL has_photo, s.seen
+  const u = await get(`SELECT u.id, u.role, u.login, u.first, u.last, u.phone, u.telegram, u.position, u.experience, u.bio, u.public, u.status, u.photo IS NOT NULL has_photo, s.seen
     FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires > ?`, key, Date.now());
   if (!u) return null;
   if (Date.now() - u.seen > 60000) {

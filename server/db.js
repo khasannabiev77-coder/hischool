@@ -1,6 +1,5 @@
 /* Postgres. Netlify yoki boshqa serverda ulanish satri orqali, lokalda PGlite (oʻrnatishsiz Postgres). */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { randomInt } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import pg from 'pg';
@@ -11,7 +10,7 @@ export const DATA = path.resolve(process.env.HS_DATA || path.join(ROOT, 'data'))
 export const SERVERLESS = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 const ZONE = process.env.HS_TZ || 'Asia/Tashkent';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS users (
@@ -87,6 +86,15 @@ CREATE INDEX IF NOT EXISTS i_notif ON notifications (user_id, created);
 CREATE INDEX IF NOT EXISTS i_results ON results (student_id);
 CREATE INDEX IF NOT EXISTS i_schedule ON schedule (class_id, dow);
 `;
+/* Oldingi bazalarni yangilash. Har qadam faqat bir marta bajariladi. */
+const UPGRADES = {
+  // Roʻyxatdan oʻtganlarni administrator tasdiqlaydi; guruh tasdiqlashda beriladi.
+  3: `ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
+    ALTER TABLE students ALTER COLUMN class_id DROP NOT NULL;
+    UPDATE users SET status = 'pending' WHERE (role = 'parent' AND NOT EXISTS (SELECT 1 FROM links l WHERE l.parent_id = users.id AND l.status = 'approved'))
+      OR (role = 'student' AND EXISTS (SELECT 1 FROM students s WHERE s.id = users.id AND s.status = 'pending'));
+    DELETE FROM settings WHERE k = 'teacher_code';`,
+};
 
 /* Katta sonlar (vaqt, COUNT) va kasrlar (AVG) JavaScript soni boʻlib qaytadi. */
 const PARSE = { 20: Number, 1700: Number };
@@ -150,8 +158,10 @@ async function start() {
 }
 async function migrate(e) {
   const v = await e.query(`SELECT v FROM settings WHERE k = 'schema'`, []).catch((x) => { if (x.code === '42P01') return []; throw x; });
-  if (Number(v[0]?.v || 0) < SCHEMA_VERSION) {
-    await e.script(`${SCHEMA} INSERT INTO settings VALUES ('schema', '${SCHEMA_VERSION}') ON CONFLICT (k) DO UPDATE SET v = excluded.v;`);
+  const now = Number(v[0]?.v || 0);
+  if (now < SCHEMA_VERSION) {
+    const steps = Object.keys(UPGRADES).filter((k) => Number(k) > now).map((k) => UPGRADES[k]).join('\n');
+    await e.script(`${SCHEMA} ${steps} INSERT INTO settings VALUES ('schema', '${SCHEMA_VERSION}') ON CONFLICT (k) DO UPDATE SET v = excluded.v;`);
   }
 }
 const ready = () => (engine ? null : (starting ??= start().catch((e) => { starting = null; throw e; })));
@@ -171,18 +181,7 @@ export async function insert(sql, ...a) { return (await get(`${sql} RETURNING id
 export async function tx(fn) { await ready(); return current.getStore() ? fn() : engine.tx(fn); }
 
 /* ---------- umumiy ---------- */
-export async function teacherCode(renew = false) {
-  const row = await get('SELECT v FROM settings WHERE k = ?', 'teacher_code');
-  if (row && !renew) return row.v;
-  const abc = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  let code = '';
-  for (let i = 0; i < 8; i++) code += abc[randomInt(abc.length)];
-  code = code.slice(0, 4) + '-' + code.slice(4);
-  await run(`INSERT INTO settings VALUES ('teacher_code', ?) ON CONFLICT (k) DO UPDATE SET v = excluded.v WHERE ?::int = 1`, code, renew ? 1 : 0);
-  return (await get('SELECT v FROM settings WHERE k = ?', 'teacher_code')).v;
-}
-
-/* Server boshqa mintaqada (Netlify: UTC) boʻlsa ham sana va vaqt maktab vaqti boʻyicha. */
+/* Server boshqa mintaqada (Netlify: UTC) boʻlsa ham sana va vaqt toʻgarak vaqti boʻyicha. */
 const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 export function local(d = new Date()) {
   const p = Object.fromEntries(fmt.formatToParts(d).map((x) => [x.type, x.value]));

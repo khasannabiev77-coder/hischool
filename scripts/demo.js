@@ -25,13 +25,13 @@ if (!await get('SELECT 1 FROM rooms')) {
     await run(`UPDATE users SET position = 'English Teacher', experience = 5, public = 1, bio = 'Boshlangʻich daraja va bolalar guruhlari bilan ishlaydi.' WHERE id = ?`, t2);
     const rooms = [];
     for (const n of ['Classroom 203', 'Classroom 204', 'Classroom 105']) rooms.push(await ins('INSERT INTO rooms (name) VALUES (?)', n));
-    const cls = await ins('INSERT INTO classes (name, teacher_id, course, room_id) VALUES (?,?,?,?)', '7-A', t, 'English Intermediate', rooms[0]);
-    const cls2 = await ins('INSERT INTO classes (name, teacher_id, course, room_id) VALUES (?,?,?,?)', '5-B', t2, 'English Elementary', rooms[1]);
+    const cls = await ins('INSERT INTO classes (name, teacher_id, course, room_id) VALUES (?,?,?,?)', 'Intermediate-1', t, 'English Intermediate', rooms[0]);
+    const cls2 = await ins('INSERT INTO classes (name, teacher_id, course, room_id) VALUES (?,?,?,?)', 'Elementary-2', t2, 'English Elementary', rooms[1]);
     const mk = async (list, c, off) => {
       const ids = [];
       for (const [i, [f, l]] of list.entries()) {
       const id = await user('student', off + i === 0 ? 'DEMO-S' : `DEMO-S${off + i + 1}`, f, l, `93000${String(off + i).padStart(4, '0')}`, 20 + ((off + i) * 23) % 140);
-      await run('INSERT INTO students (id, class_id, address, parent_phone, name_key, status, level) VALUES (?,?,?,?,?,?,?)', id, c, 'Toshkent, Chilonzor 9', `97000${String(off + i).padStart(4, '0')}`, nameKey(f, l), off + i === 7 ? 'pending' : 'approved', c === cls ? 'B1' : 'A2');
+      await run('INSERT INTO students (id, class_id, address, parent_phone, name_key, status, level) VALUES (?,?,?,?,?,?,?)', id, off + i === 7 ? null : c, 'Toshkent, Chilonzor 9', `97000${String(off + i).padStart(4, '0')}`, nameKey(f, l), off + i === 7 ? 'pending' : 'approved', c === cls ? 'B1' : 'A2');
       ids.push(id);
       }
       return ids;
@@ -82,7 +82,7 @@ if (!await get('SELECT 1 FROM rooms')) {
     await note(p, 'n2', 'result', { name: 'Azizbek', title: 'Unit 6 · Vocabulary test', score: 95 }, '#/grades', 3);
     await note(p, 'n3', 'feedback', { name: 'Azizbek', teacher: 'John Smith' }, '#/feedback', 4);
     await note(p, 'n4', 'homework', { name: 'Azizbek', title: 'Write 8 sentences about your weekend', due: today() }, '#/homework', 28, 1);
-    await note(t, 'n5', 'request', { name: 'Nilufar Ergasheva', kind: 'student' }, '#/students', 2);
+    await run(`UPDATE users SET status = 'pending' WHERE login IN ('DEMO-S8', 'DEMO-P2')`);
     for (let d = 13; d >= 0; d--) for (const u of [p, p2, p3, t, t2, ...all]) if (chance(58)) await run('INSERT INTO visits VALUES (?,?) ON CONFLICT DO NOTHING', u, daysAgo(d));
   });
 }

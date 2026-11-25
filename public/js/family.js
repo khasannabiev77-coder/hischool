@@ -25,7 +25,7 @@ const switcher = () => {
   return isParent() && ok.length > 1 ? pick('child', 'Farzand', ok.map((c) => [c.id, full(c)]), state.childId) : '';
 };
 const bindSwitcher = (ctx) => $('#child', ctx.el)?.addEventListener('change', (e) => { state.childId = Number(e.target.value); ctx.refresh(); });
-const waiting = () => html`<div class="notice">${icon('clock', 26)}<div><h2>Oʻqituvchi tasdigʻi kutilmoqda</h2>${state.children.length ? html`<p>${state.children.map(full).join(', ')}</p><p>Oʻqituvchi tasdiqlagach, baholar va jonli dars shu yerda ochiladi. Farzandingiz ham roʻyxatdan oʻtganini tekshiring.</p>` : html`<p>Farzand topilmadi. Sozlamalar boʻlimida farzandingizni qayta qoʻshing.</p>`}</div></div>`;
+const waiting = () => html`<div class="notice">${icon('clock', 26)}<div><h2>Administrator tasdigʻi kutilmoqda</h2>${state.children.length ? html`<p>${state.children.map(full).join(', ')}</p><p>Administrator farzandingizni bogʻlagach, baholar va jonli dars shu yerda ochiladi. Farzandingiz ham roʻyxatdan oʻtganini tekshiring.</p>` : html`<p>Farzand topilmadi. Sozlamalar boʻlimida farzandingizni qayta qoʻshing.</p>`}</div></div>`;
 
 /** Hisobotni yuklab, sahifani chizadi; hali tasdiqlanmagan boʻlsa tushuntirish chiqaradi. */
 const withReport = (title, sub, draw) => async (ctx) => {
@@ -33,14 +33,11 @@ const withReport = (title, sub, draw) => async (ctx) => {
     await loadChildren();
     if (!ctx.live()) return;
     if (!state.childId) { ctx.render(html`${head(title, sub)}${waiting()}`); return autoRefresh(ctx); }
-  } else {
-    const { user } = await api('GET', '/me');
-    if (user) state.user.status = user.status;
   }
   const r = await api('GET', `/report/${isParent() ? state.childId : state.user.id}`);
   if (!ctx.live()) return;
   const body = draw(r, ctx);
-  ctx.render(html`${head(title, sub, switcher())}${!isParent() && r.student.status === 'pending' ? html`<div class="notice">${icon('clock', 26)}<div><h2>Oʻqituvchi tasdigʻi kutilmoqda</h2><p>Oʻqituvchi sizni sinfga qabul qilgach, baholaringiz chiqa boshlaydi.</p></div></div>` : ''}${body.html}`);
+  ctx.render(html`${head(title, sub, switcher())}${body.html}`);
   body.bind?.();
   bindSwitcher(ctx); autoRefresh(ctx);
 };
@@ -120,26 +117,26 @@ const homework = withReport('Uy vazifalari', '', (r) => {
 const schedule = withReport('Dars jadvali', '', (r) => ({ html: r.schedule.length ? week(r.schedule) : card('', empty('Jadval hali kiritilmagan.', 'calendar')) }));
 const feedback = withReport('Oʻqituvchi fikrlari', '', (r, ctx) => ({ html: html`<div class="grid split rev">${card('Oʻqituvchi', teacherCard(r.teacher, isParent()))}${card('Fikrlar', feedbackList(r.feedback))}</div>`, bind: () => bindRate(ctx, r.teacher) }));
 
-/* ---------- 9. jonli sinf ---------- */
+/* ---------- 9. jonli dars ---------- */
 const mulaw = (u8) => { const f = new Float32Array(u8.length); for (let i = 0; i < u8.length; i++) { const v = u8[i] / 127.5 - 1; f[i] = (Math.sign(v) * (256 ** Math.abs(v) - 1)) / 255; } return f; };
 
 async function cameraPage(ctx) {
   await loadChildren();
   if (!ctx.live()) return;
-  const sub = 'Jonli sinfga faqat tasdiqlangan ota-onalar kira oladi.';
+  const sub = 'Jonli darsga faqat tasdiqlangan ota-onalar kira oladi.';
   if (!state.childId) { ctx.render(html`${head('Live Classroom', sub)}${waiting()}`); return autoRefresh(ctx); }
   const kid = state.children.find((c) => c.id === state.childId);
   const r = await api('GET', `/report/${state.childId}`);
   if (!ctx.live()) return;
   const s = r.student, slotNow = r.schedule.find((x) => lessonStatus(x)?.[1] === 'live');
-  const denied = !r.camera ? 'Kameraga ruxsatingiz vaqtincha toʻxtatilgan. Oʻqituvchi yoki maktab bilan bogʻlaning.' : !s.camera_on ? 'Bu xona kamerasi hozir oʻchirilgan.' : '';
+  const denied = !r.camera ? 'Kameraga ruxsatingiz vaqtincha toʻxtatilgan. Oʻqituvchi yoki toʻgarak bilan bogʻlaning.' : !s.camera_on ? 'Bu xona kamerasi hozir oʻchirilgan.' : '';
   ctx.render(html`${head('Live Classroom', sub, switcher())}
     <div class="camgrid"><div><div class="cam" id="cam"><canvas id="cv" width="960" height="540" hidden></canvas><div class="cam-off" id="off">${icon(denied ? 'lock' : 'camera', 40)}<p></p></div>
       <div class="cam-top"><span class="hud live" id="tag" hidden><i class="live-dot"></i>LIVE</span><span class="hud">${s.room || s.class_name}</span><span class="hud right" id="clock"></span></div>
       <div class="cam-bar"><span class="conn" id="conn">${icon('signal', 18)}<span>Ulanmoqda</span></span><span class="grow"></span><label class="camsel"><span class="sr">Tasvir sifati</span><select id="q"><option value="high">Yuqori</option><option value="mid">Oʻrta</option><option value="low">Tejamkor</option></select></label><button class="iconbtn" id="mute" aria-label="Ovoz" aria-pressed="true" title="Ovoz">${icon('mute')}</button><button class="iconbtn" id="report" aria-label="Muammo haqida xabar berish" title="Muammo haqida xabar berish">${icon('flag')}</button><button class="iconbtn" id="fs" aria-label="Toʻliq ekran" title="Toʻliq ekran">${icon('full')}</button></div></div>
       <div class="grid g2 cam-now"><div class="nowbox" id="now"><small>${kid.first}</small><b>–</b></div><div class="nowbox"><small>Shu darsdagi diqqat</small><b id="sc">–</b></div></div></div>
-    <div class="cam-side">${card('', html`<p class="online" id="online"><i></i><span>Kamera oʻchiq</span></p><dl class="facts"><div><dt>Sinf</dt><dd>${s.class_name}</dd></div><div><dt>Kurs</dt><dd>${s.course || `English ${s.level}`}</dd></div><div><dt>Oʻqituvchi</dt><dd>${full(r.teacher)}</dd></div><div><dt>Dars</dt><dd id="topic">${r.live?.topic || slotNow?.subject || '–'}</dd></div><div><dt>Boshlandi</dt><dd id="from">${r.live ? clock(r.live.started) : slotNow?.start || '–'}</dd></div><div><dt>Tugaydi</dt><dd>${slotNow?.finish || '–'}</dd></div></dl>`)}
-      ${card('Kirish nazorati', html`<ul class="access"><li>${icon(denied ? 'lock' : 'check', 20)}<div><b>${denied ? 'Ruxsat yopiq' : 'Ruxsatingiz faol'}</b><small>${full(state.user)}</small></div></li><li>${icon('eye', 20)}<div><b id="priv">Boshqa oʻquvchilar yuzi yashirilgan</b><small>Faqat farzandingiz ochiq koʻrinadi</small></div></li><li>${icon('shield', 20)}<div><b>Yozib olinmaydi</b><small>Faqat oxirgi kadr turadi va dars tugagach oʻchadi</small></div></li><li>${icon('clock', 20)}<div><b>Koʻrish qayd etiladi</b><small>Maktab kim va qachon kirganini koʻradi</small></div></li></ul>`)}</div></div>`);
+    <div class="cam-side">${card('', html`<p class="online" id="online"><i></i><span>Kamera oʻchiq</span></p><dl class="facts"><div><dt>Guruh</dt><dd>${s.class_name}</dd></div><div><dt>Kurs</dt><dd>${s.course || `English ${s.level}`}</dd></div><div><dt>Oʻqituvchi</dt><dd>${full(r.teacher)}</dd></div><div><dt>Dars</dt><dd id="topic">${r.live?.topic || slotNow?.subject || '–'}</dd></div><div><dt>Boshlandi</dt><dd id="from">${r.live ? clock(r.live.started) : slotNow?.start || '–'}</dd></div><div><dt>Tugaydi</dt><dd>${slotNow?.finish || '–'}</dd></div></dl>`)}
+      ${card('Kirish nazorati', html`<ul class="access"><li>${icon(denied ? 'lock' : 'check', 20)}<div><b>${denied ? 'Ruxsat yopiq' : 'Ruxsatingiz faol'}</b><small>${full(state.user)}</small></div></li><li>${icon('eye', 20)}<div><b id="priv">Boshqa oʻquvchilar yuzi yashirilgan</b><small>Faqat farzandingiz ochiq koʻrinadi</small></div></li><li>${icon('shield', 20)}<div><b>Yozib olinmaydi</b><small>Faqat oxirgi kadr turadi va dars tugagach oʻchadi</small></div></li><li>${icon('clock', 20)}<div><b>Koʻrish qayd etiladi</b><small>Toʻgarak kim va qachon kirganini koʻradi</small></div></li></ul>`)}</div></div>`);
   bindSwitcher(ctx);
   const cv = $('#cv'), g = cv.getContext('2d'), off = $('#off'), box = $('#cam'), q = $('#q'), muteBtn = $('#mute');
   let lastAt = 0, token = '', since = '', status = '', wake = () => {}, audio = null, playAt = 0, nextSample = null, hasAudio = false;
@@ -151,7 +148,7 @@ async function cameraPage(ctx) {
     conn('Serverga ulangan', 'ok');
     if (denied) { $('p', off).textContent = tr(denied); return; }
     const l = status === 'waiting';
-    $('p', off).textContent = tr(l ? 'Dars boshlangan, kamera ulanishi kutilmoqda…' : 'Hozir dars yoʻq. Oʻqituvchi darsni boshlasa, sinf shu yerda koʻrinadi.');
+    $('p', off).textContent = tr(l ? 'Dars boshlangan, kamera ulanishi kutilmoqda…' : 'Hozir dars yoʻq. Oʻqituvchi darsni boshlasa, dars shu yerda koʻrinadi.');
   };
   idle();
 
@@ -257,7 +254,7 @@ async function cameraPage(ctx) {
   $('#report').addEventListener('click', async () => {
     const text = await textBox('Muammo haqida xabar berish', '', { placeholder: 'Nima ishlamayapti?', yes: 'Yuborish', max: 500 });
     if (!text) return;
-    try { await api('POST', '/camera/report', { student_id: state.childId, text }); toast('Xabar oʻqituvchi va maktabga yuborildi'); } catch (e) { toast(e.message, 'err'); }
+    try { await api('POST', '/camera/report', { student_id: state.childId, text }); toast('Xabar oʻqituvchi va toʻgarakka yuborildi'); } catch (e) { toast(e.message, 'err'); }
   });
 }
 
@@ -266,7 +263,7 @@ async function settings(ctx) {
   if (!isParent()) return settingsPage(ctx);
   await loadChildren();
   await settingsPage(ctx, card('Farzandlarim', html`<ul class="list">${state.children.map((c) => html`<li class="line">${avatar(c)}<div><b>${full(c)}</b><small>${c.class_name || ''}</small></div>${c.approved ? chip('Tasdiqlangan', 'good') : chip('Kutilmoqda', 'warn')}</li>`)}</ul><form id="add"><div class="two">${field('child_first', 'Farzandning ismi', { maxlength: 40 })}${field('child_last', 'Farzandning familiyasi', { maxlength: 40 })}</div><button class="btn small" type="submit">Farzand qoʻshish</button></form>`),
-    () => onSubmit($('#add'), async (v) => { await api('POST', '/children', v); toast('Soʻrov oʻqituvchiga yuborildi'); ctx.refresh(); }));
+    () => onSubmit($('#add'), async (v) => { await api('POST', '/children', v); toast('Soʻrov administratorga yuborildi'); ctx.refresh(); }));
 }
 
 export const bottom = () => (isParent() ? ['dashboard', 'child', 'camera', 'schedule', 'settings'] : ['dashboard', 'grades', 'homework', 'schedule', 'settings']);
@@ -278,7 +275,7 @@ export const pages = () => [
   { id: 'behaviour', uz: 'Odob va faollik', icon: 'star', page: behaviour },
   { id: 'homework', uz: 'Uy vazifalari', short: 'Vazifa', icon: 'book', page: homework },
   { id: 'schedule', uz: 'Dars jadvali', short: 'Jadval', icon: 'clock', page: schedule },
-  ...(isParent() ? [{ id: 'camera', uz: 'Sinf kamerasi', short: 'Kamera', icon: 'camera', page: cameraPage }] : []),
+  ...(isParent() ? [{ id: 'camera', uz: 'Dars kamerasi', short: 'Kamera', icon: 'camera', page: cameraPage }] : []),
   { id: 'feedback', uz: 'Oʻqituvchi fikrlari', icon: 'chat', page: feedback },
   { id: 'notifications', uz: 'Bildirishnomalar', icon: 'bell', page: (ctx) => notificationsPage(ctx) },
   { id: 'settings', uz: 'Sozlamalar', short: 'Profil', icon: 'gear', page: settings },

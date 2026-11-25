@@ -6,7 +6,7 @@ import { camera } from './face.js';
 import { settingsPage } from './app.js';
 import { tr } from './i18n.js';
 
-export const tagline = () => 'Sinflaringizning bugungi holati';
+export const tagline = () => 'Guruhlaringizning bugungi holati';
 export async function init() { await loadClasses(); }
 export async function beforeLogout() { if (camera.running) await stopLesson(); }
 export function dispose() { camera.stop(); }
@@ -17,13 +17,13 @@ export async function loadClasses() {
   if (!state.classes.some((c) => c.id === state.classId)) state.classId = state.classes[0]?.id ?? null;
 }
 const isAdmin = () => state.user.role === 'admin';
-export const picker = () => pick('cls', 'Sinf', state.classes.map((c) => [c.id, isAdmin() ? `${c.name}, ${c.teacher}` : c.name]), state.classId);
+export const picker = () => pick('cls', 'Guruh', state.classes.map((c) => [c.id, isAdmin() ? `${c.name}, ${c.teacher}` : c.name]), state.classId);
 export function bindPicker(ctx, to) { $('#cls', ctx.el)?.addEventListener('change', (e) => { state.classId = Number(e.target.value); if (to && location.hash !== to) location.hash = to; else ctx.refresh(); }); }
-/** Sinf tanlangan sahifa: sinf yoʻq boʻlsa tushuntirish chiqadi. */
+/** Guruh tanlangan sahifa: guruh yoʻq boʻlsa tushuntirish chiqadi. */
 export const withClass = (title, sub, fn) => async (ctx) => {
   await loadClasses();
   if (!ctx.live()) return;
-  if (!state.classId) return ctx.render(html`${head(title, sub)}${card('', empty('Hali sinf yoʻq. Avval sinf oching.', 'cap'))}`);
+  if (!state.classId) return ctx.render(html`${head(title, sub)}${card('', empty('Hali guruh yoʻq. Avval guruh oching.', 'cap'))}`);
   return fn(ctx);
 };
 export function bindDo(ctx) {
@@ -51,10 +51,9 @@ const dashboard = withClass('Dashboard', '', async (ctx) => {
   const mean = (k) => { const v = st.map((s) => s[k]).filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
   ctx.render(html`${head('Dashboard', '', picker())}
     ${r.live ? html`<a class="livebar" href="#/live"><i class="live-dot"></i><span><b>Jonli dars ketmoqda</b><small>${r.live.topic}</small></span><span class="btn small glass">Darsga oʻtish</span></a>` : ''}
-    ${state.pending ? html`<a class="livebar wait" href="#/students">${icon('people')}<span><b>${state.pending} <span>ta soʻrov tasdiq kutmoqda</span></b></span><span class="btn small">Koʻrish</span></a>` : ''}
     <div class="grid g4 stats">${stat('people', 'Oʻquvchilar', st.length, { sub: r.class.name })}${stat('calendar', 'Bugun darsda', marked.length ? (100 * here) / marked.length : null, { suffix: '%', sub: `${here} / ${st.length}` })}${stat('star', 'Faollik', mean('activity'), { digits: 1, suffix: ' / 5', sub: 'Oxirgi 30 kun' })}${stat('shield', 'Intizom', mean('behaviour'), { digits: 1, suffix: ' / 5', sub: 'Oxirgi 30 kun' })}</div>
-    <div class="grid split">${card('Sinfning darsdagi diqqati', columns(r.lessons.map((l) => ({ label: dayShort(l.date), full: `${day(l.date)}, ${l.topic}`, value: l.score })), { label: 'Darslar boʻyicha sinf diqqati', head: ['Dars', 'Diqqat'], none: 'Kamera bilan oʻtilgan birinchi darsdan keyin grafik chiqadi.' }), { aside: html`<span class="muted">Kamera taxmini</span>` })}${card('Bugungi darslar', todayList(r.schedule), { aside: html`<a href="#/schedule">Jadval</a>` })}</div>
-    ${card('Oʻquvchilar', st.length ? html`<div class="scroll"><table class="tbl cards"><thead><tr><th>Oʻquvchi</th><th>Daraja</th><th>Bugun</th><th>Faollik</th><th>Intizom</th><th>Vazifa</th><th>Test</th></tr></thead><tbody>${st.map((s) => html`<tr><td><a class="who" href="#/students/${s.id}">${avatar(s)}<b>${full(s)}</b></a></td><td data-l="Daraja">${chip(s.level, 'blue')}</td><td data-l="Bugun">${s.attendance ? chip(ATT[s.attendance], ATT_TONE[s.attendance]) : '–'}</td><td data-l="Faollik">${mark(s.activity)}</td><td data-l="Intizom">${mark(s.behaviour)}</td><td data-l="Vazifa">${mark(s.homework)}</td><td data-l="Test">${pc(s.test)}</td></tr>`)}</tbody></table></div>` : empty('Bu sinfda hali oʻquvchi yoʻq. Oʻquvchilar roʻyxatdan oʻtib, sinfni tanlaydi, siz tasdiqlaysiz.', 'people'))}`);
+    <div class="grid split">${card('Guruhning darsdagi diqqati', columns(r.lessons.map((l) => ({ label: dayShort(l.date), full: `${day(l.date)}, ${l.topic}`, value: l.score })), { label: 'Darslar boʻyicha guruh diqqati', head: ['Dars', 'Diqqat'], none: 'Kamera bilan oʻtilgan birinchi darsdan keyin grafik chiqadi.' }), { aside: html`<span class="muted">Kamera taxmini</span>` })}${card('Bugungi darslar', todayList(r.schedule), { aside: html`<a href="#/schedule">Jadval</a>` })}</div>
+    ${card('Oʻquvchilar', st.length ? html`<div class="scroll"><table class="tbl cards"><thead><tr><th>Oʻquvchi</th><th>Daraja</th><th>Bugun</th><th>Faollik</th><th>Intizom</th><th>Vazifa</th><th>Test</th></tr></thead><tbody>${st.map((s) => html`<tr><td><a class="who" href="#/students/${s.id}">${avatar(s)}<b>${full(s)}</b></a></td><td data-l="Daraja">${chip(s.level, 'blue')}</td><td data-l="Bugun">${s.attendance ? chip(ATT[s.attendance], ATT_TONE[s.attendance]) : '–'}</td><td data-l="Faollik">${mark(s.activity)}</td><td data-l="Intizom">${mark(s.behaviour)}</td><td data-l="Vazifa">${mark(s.homework)}</td><td data-l="Test">${pc(s.test)}</td></tr>`)}</tbody></table></div>` : empty('Bu guruhda hali oʻquvchi yoʻq. Oʻquvchilarni guruhga administrator qoʻshadi.', 'people'))}`);
   bindPicker(ctx);
 });
 
@@ -73,13 +72,13 @@ const livePage = withClass('Jonli dars', '', async (ctx) => {
   ctx.render(html`${head('Jonli dars', '', on ? chip(cls.name, 'blue') : picker())}
     <div class="camgrid"><div>
       ${on ? '' : card('', html`<form id="start" class="inline">${open ? html`<p class="grow"><span>Yakunlanmagan dars bor</span>: <b>${open.topic}</b></p>` : field('topic', 'Dars mavzusi', { placeholder: 'Unit 5: My favourite season', maxlength: 120 })}<button class="btn" type="submit">${open ? 'Kamerani ulash' : 'Darsni boshlash'}</button>${open ? html`<button type="button" class="btn ghost" id="endopen">Darsni yakunlash</button>` : ''}</form>`)}
-      <div class="cam" id="cam"><canvas id="cv" width="960" height="540" ${on ? '' : html`hidden`}></canvas><div class="cam-off" ${on ? html`hidden` : ''}>${icon('camera', 40)}<p>Kamera oʻchiq. Uni butun sinf koʻrinadigan joyga qoʻying.</p></div>
+      <div class="cam" id="cam"><canvas id="cv" width="960" height="540" ${on ? '' : html`hidden`}></canvas><div class="cam-off" ${on ? html`hidden` : ''}>${icon('camera', 40)}<p>Kamera oʻchiq. Uni butun guruh koʻrinadigan joyga qoʻying.</p></div>
         <div class="cam-top">${on ? html`<span class="hud live"><i class="live-dot"></i>LIVE</span>` : ''}<span class="hud">${cls.room || cls.name}</span>${on ? html`<span class="hud right">${icon('eye', 16)} <span id="vw">${camera.viewers}</span></span>` : ''}</div>
         ${on ? html`<div class="cam-bar"><b class="ell">${camera.lesson.topic}</b><span class="grow"></span><button class="btn small danger solid" id="stop">Darsni yakunlash</button></div>` : ''}</div>
       <p id="st" class="status" role="status"></p></div>
-    <div class="cam-side">${card('Kamera sozlamasi', html`<div class="stack">${select('dev', 'Kamera', [['', 'Standart']])}${select('tiles', 'Sinf kattaligi', [[1, 'Kichik (tez)'], [4, 'Katta, orqa partalar (sekin)']], camera.opts.tiles)}${select('width', 'Tasvir sifati', [[640, 'Tejamkor'], [960, 'Oʻrta'], [1280, 'Yuqori']], camera.opts.width)}
+    <div class="cam-side">${card('Kamera sozlamasi', html`<div class="stack">${select('dev', 'Kamera', [['', 'Standart']])}${select('tiles', 'Guruh kattaligi', [[1, 'Kichik (tez)'], [4, 'Katta, orqa partalar (sekin)']], camera.opts.tiles)}${select('width', 'Tasvir sifati', [[640, 'Tejamkor'], [960, 'Oʻrta'], [1280, 'Yuqori']], camera.opts.width)}
         <label class="switch"><input type="checkbox" id="blur" ${camera.opts.blur ? html`checked` : ''}><i></i><span>Boshqa bolalar yuzini yashirish</span></label><label class="switch"><input type="checkbox" id="audio" ${camera.opts.audio ? html`checked` : ''}><i></i><span>Ovozni uzatish</span></label></div>`)}</div></div>
-    ${card('Kim koʻrinyapti', students.length ? html`<ul class="seats" id="seats">${students.map((s) => html`<li data-id="${s.id}">${avatar(s)}<div><b>${full(s)}</b><small>${s.descriptor ? 'Kutilmoqda' : s.has_photo ? 'Rasm dars boshida tekshiriladi' : 'Rasmi yoʻq'}</small></div><span class="pc">–</span></li>`)}</ul><p class="fine">Kamera oʻquvchini tanisa, davomatda «Keldi» deb oʻzi belgilaydi. Boshqa boʻlimga oʻtsangiz ham kamera ishlaydi, lekin brauzer oynasini yopmang.</p>` : empty('Bu sinfda tasdiqlangan oʻquvchi yoʻq.', 'people'))}`);
+    ${card('Kim koʻrinyapti', students.length ? html`<ul class="seats" id="seats">${students.map((s) => html`<li data-id="${s.id}">${avatar(s)}<div><b>${full(s)}</b><small>${s.descriptor ? 'Kutilmoqda' : s.has_photo ? 'Rasm dars boshida tekshiriladi' : 'Rasmi yoʻq'}</small></div><span class="pc">–</span></li>`)}</ul><p class="fine">Kamera oʻquvchini tanisa, davomatda «Keldi» deb oʻzi belgilaydi. Boshqa boʻlimga oʻtsangiz ham kamera ishlaydi, lekin brauzer oynasini yopmang.</p>` : empty('Bu guruhda tasdiqlangan oʻquvchi yoʻq.', 'people'))}`);
   bindPicker(ctx);
 
   const cv = $('#cv'), g = cv.getContext('2d'), st = $('#st');
@@ -175,7 +174,7 @@ export const journal = (title, mode = 'all') => withClass(title, '', async (ctx)
   ctx.render(html`${head(title, '', html`${picker()}<label class="pick"><span>Sana</span><input type="date" id="date" value="${date}" max="${today()}"></label>`)}
     ${card(day(date), rows.length ? html`<ul class="journal k${kinds.length + (mode === 'behaviour' ? 0 : 1)}">${rows.map((s) => html`<li data-id="${s.id}"><a class="who" href="#/students/${s.id}">${avatar(s)}<span><b>${full(s)}</b>${s.camera == null ? '' : html`<small><span>Kamera: diqqat</span> ${s.camera}%</small>`}</span></a>
       ${mode === 'behaviour' ? '' : html`<div class="jc"><span>Davomat</span><div class="scale att" role="group" aria-label="Davomat">${Object.entries(ATT).map(([k, t]) => html`<button type="button" data-att="${k}" class="${k}" aria-pressed="${s.attendance === k ? 'true' : 'false'}">${t}</button>`)}</div></div>`}
-      ${kinds.map((k) => html`<div class="jc" data-kind="${k}" data-note="${s.grades[k]?.note || ''}"><span>${KIND[k]}</span><div class="row tight nowrap">${scale(s.grades[k]?.value ?? null, KIND[k])}${noteBtn(s.grades[k]?.note)}</div></div>`)}</li>`)}</ul>` : empty('Bu sinfda tasdiqlangan oʻquvchi yoʻq.', 'people'),
+      ${kinds.map((k) => html`<div class="jc" data-kind="${k}" data-note="${s.grades[k]?.note || ''}"><span>${KIND[k]}</span><div class="row tight nowrap">${scale(s.grades[k]?.value ?? null, KIND[k])}${noteBtn(s.grades[k]?.note)}</div></div>`)}</li>`)}</ul>` : empty('Bu guruhda tasdiqlangan oʻquvchi yoʻq.', 'people'),
     { aside: mode === 'behaviour' ? '' : html`<ul class="legend row-l" id="sum">${Object.entries(ATT).map(([k, t]) => html`<li class="${k}"><i></i><span>${t}</span><b>${n(k)}</b></li>`)}</ul>` })}
     <p class="fine">Bosilgan belgi darhol saqlanadi va ota-onaga xabar boradi. Olib tashlash uchun yana bir marta bosing.</p>`);
   bindPicker(ctx);
@@ -202,7 +201,7 @@ export const assessments = withClass('Test natijalari', '', async (ctx) => {
   const mean = (a) => { const v = Object.values(a.results).map((x) => x.score); return v.length ? v.reduce((x, y) => x + y, 0) / v.length : null; };
   if (cur) {
     ctx.render(html`<a class="back" href="${base}">${icon('left', 18)} <span>Barcha testlar</span></a>${head(cur.title, html`<span>${SKILL[cur.skill]}</span> · <span>${day(cur.date)}</span>`, html`<button class="btn small ghost" id="del">Testni oʻchirish</button>`)}
-      ${card('Natijalar', r.students.length ? html`<ul class="list scores">${r.students.map((s) => { const x = cur.results[s.id]; return html`<li><form data-id="${s.id}" class="line"><span class="who">${avatar(s)}<b>${full(s)}</b></span><label class="score"><span class="sr">Natija, foiz</span><input name="score" type="number" min="0" max="100" inputmode="numeric" value="${x?.score ?? ''}" placeholder="0–100"><i>%</i></label><input name="comment" maxlength="300" aria-label="Izoh" placeholder="Izoh (ixtiyoriy)" value="${x?.comment || ''}"><button class="btn small" type="submit" disabled>Saqlash</button></form></li>`; })}</ul>` : empty('Bu sinfda tasdiqlangan oʻquvchi yoʻq.', 'people'))}`);
+      ${card('Natijalar', r.students.length ? html`<ul class="list scores">${r.students.map((s) => { const x = cur.results[s.id]; return html`<li><form data-id="${s.id}" class="line"><span class="who">${avatar(s)}<b>${full(s)}</b></span><label class="score"><span class="sr">Natija, foiz</span><input name="score" type="number" min="0" max="100" inputmode="numeric" value="${x?.score ?? ''}" placeholder="0–100"><i>%</i></label><input name="comment" maxlength="300" aria-label="Izoh" placeholder="Izoh (ixtiyoriy)" value="${x?.comment || ''}"><button class="btn small" type="submit" disabled>Saqlash</button></form></li>`; })}</ul>` : empty('Bu guruhda tasdiqlangan oʻquvchi yoʻq.', 'people'))}`);
     $$('.scores form').forEach((f) => {
       const b = $('button', f);
       f.noValidate = true;
@@ -232,7 +231,7 @@ export const homework = withClass('Uy vazifalari', '', async (ctx) => {
   const cur = r.items.find((h) => h.id === Number(ctx.param));
   if (cur) {
     ctx.render(html`<a class="back" href="#/homework">${icon('left', 18)} <span>Barcha vazifalar</span></a>${head(cur.title, html`<span>Muddat</span>: ${day(cur.due)}`, html`<button class="btn small ghost" id="del">Vazifani oʻchirish</button>`)}${cur.details ? card('', html`<p class="pre">${cur.details}</p>`) : ''}
-      ${card('Baholash', r.students.length ? html`<ul class="journal k1">${r.students.map((s) => html`<li data-id="${s.id}"><span class="who">${avatar(s)}<b>${full(s)}</b></span><div class="jc" data-note="${cur.grades[s.id]?.note || ''}"><div class="row tight nowrap">${scale(cur.grades[s.id]?.value ?? null, 'Baho')}${noteBtn(cur.grades[s.id]?.note)}</div></div></li>`)}</ul>` : empty('Bu sinfda tasdiqlangan oʻquvchi yoʻq.', 'people'))}`);
+      ${card('Baholash', r.students.length ? html`<ul class="journal k1">${r.students.map((s) => html`<li data-id="${s.id}"><span class="who">${avatar(s)}<b>${full(s)}</b></span><div class="jc" data-note="${cur.grades[s.id]?.note || ''}"><div class="row tight nowrap">${scale(cur.grades[s.id]?.value ?? null, 'Baho')}${noteBtn(cur.grades[s.id]?.note)}</div></div></li>`)}</ul>` : empty('Bu guruhda tasdiqlangan oʻquvchi yoʻq.', 'people'))}`);
     $('.journal', ctx.el)?.addEventListener('click', async (e) => {
       const b = e.target.closest('button');
       if (!b) return;
@@ -253,27 +252,21 @@ export const homework = withClass('Uy vazifalari', '', async (ctx) => {
 export const schedule = withClass('Dars jadvali', '', async (ctx) => {
   const list = (await api('GET', '/t/schedule')).filter((x) => x.class_id === state.classId);
   if (!ctx.live()) return;
-  ctx.render(html`${head('Dars jadvali', '', html`${picker()}<button class="btn" id="add">${icon('plus', 20)} <span>Dars qoʻshish</span></button>`)}${list.length ? week(list, true) : card('', empty('Bu sinfning jadvali boʻsh. Birinchi darsni qoʻshing.', 'calendar'))}`);
+  ctx.render(html`${head('Dars jadvali', '', html`${picker()}<button class="btn" id="add">${icon('plus', 20)} <span>Dars qoʻshish</span></button>`)}${list.length ? week(list, true) : card('', empty('Bu guruhning jadvali boʻsh. Birinchi darsni qoʻshing.', 'calendar'))}`);
   bindPicker(ctx);
   $$('[data-delslot]').forEach((b) => b.addEventListener('click', act(async () => { if (!await confirmBox('Dars jadvaldan olinsinmi?', 'Ota-onalar jadvalida ham koʻrinmaydi.', 'Olib tashlash')) return; await api('DELETE', `/t/schedule/${b.dataset.delslot}`); ctx.refresh(); })));
   const DAYS = ['Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba', 'Yakshanba'];
-  $('#add').addEventListener('click', () => formBox('Dars qoʻshish', html`${select('dow', 'Kun', DAYS.map((d, i) => [i + 1, d]))}${field('subject', 'Dars', { placeholder: 'English Grammar', maxlength: 60 })}<div class="two">${field('start', 'Boshlanishi', { type: 'time', value: '09:00' })}${field('finish', 'Tugashi', { type: 'time', value: '09:45' })}</div>${select('room_id', 'Xona', [['', 'Sinf xonasi'], ...state.rooms.map((r) => [r.id, r.name])])}`, 'Qoʻshish',
+  $('#add').addEventListener('click', () => formBox('Dars qoʻshish', html`${select('dow', 'Kun', DAYS.map((d, i) => [i + 1, d]))}${field('subject', 'Dars', { placeholder: 'English Grammar', maxlength: 60 })}<div class="two">${field('start', 'Boshlanishi', { type: 'time', value: '09:00' })}${field('finish', 'Tugashi', { type: 'time', value: '09:45' })}</div>${select('room_id', 'Xona', [['', 'Guruh xonasi'], ...state.rooms.map((r) => [r.id, r.name])])}`, 'Qoʻshish',
     async (v) => { await api('POST', '/t/schedule', { ...v, dow: Number(v.dow), class_id: state.classId }); ctx.refresh(); }));
 });
 
 /* ---------- oʻquvchilar ---------- */
-const yes = (ok, a, b) => chip(ok ? a : b, ok ? 'good' : 'bad');
-export async function pendingCards() {
-  const p = await api('GET', '/t/pending');
-  return html`${p.students.length ? card('Yangi oʻquvchilar', html`<ul class="list">${p.students.map((s) => html`<li class="line wrap">${avatar(s, 'lg')}<div><b>${full(s)}</b><small>${s.class_name} · ${contact(s)}</small><small>${s.address}</small><small><span>Ota-onasi</span>: ${phone(s.parent_phone)}</small></div><div class="row tight"><button class="btn small" data-do="POST /t/students/${s.id}/approve">Qabul qilish</button><button class="btn small ghost" data-do="DELETE /t/students/${s.id}" data-ask="Soʻrov va oʻquvchining rasmi oʻchiriladi." data-yes="Rad etish">Rad etish</button></div></li>`)}</ul>`) : ''}
-    ${p.parents.length ? card('Ota-ona soʻrovlari', html`<ul class="list">${p.parents.map((l) => html`<li class="line wrap">${avatar(l, 'lg')}<div><b>${full(l)}</b><small>${phone(l.phone)}</small><small><span>Yozgan farzandi</span>: ${l.child_first} ${l.child_last}</small><small><span>Oʻquvchi</span>: ${l.s_first} ${l.s_last}, ${l.class_name}</small><p class="row tight">${yes(l.phone_ok, 'Telefon mos', 'Telefon mos emas')}${yes(l.name_ok, 'Ism mos', 'Ism mos emas')}</p></div><div class="row tight"><button class="btn small" data-do="POST /t/links/${l.id}/approve" ${l.phone_ok ? '' : html`data-ask="Telefon raqami oʻquvchi yozgan raqamga mos emas. Bu odam haqiqatan ota-onasi ekanini tekshirdingizmi?"`}>Tasdiqlash</button><button class="btn small ghost" data-do="DELETE /t/links/${l.id}" data-ask="Ota-ona soʻrovi oʻchiriladi." data-yes="Rad etish">Rad etish</button></div></li>`)}</ul><p class="fine">Tasdiqlangan ota-ona sinf kamerasini koʻra oladi. Faqat tanigan odamingizni tasdiqlang.</p>`) : ''}`;
-}
 const students = async (ctx) => {
   if (ctx.param) return studentPage(ctx);
   await loadClasses();
-  const pend = await pendingCards(), r = state.classId ? await api('GET', `/t/dashboard/${state.classId}`) : null;
+  const r = state.classId ? await api('GET', `/t/dashboard/${state.classId}`) : null;
   if (!ctx.live()) return;
-  ctx.render(html`${head('Oʻquvchilar', '', picker())}${pend}${card('Sinf roʻyxati', r?.students.length ? html`<ul class="list">${r.students.map((s) => html`<li><a class="line link" href="#/students/${s.id}">${avatar(s)}<div><b>${full(s)}</b><small>${s.level}</small></div><span class="row tight">${mark(s.activity)}${mark(s.behaviour)}${mark(s.homework)}</span>${icon('next', 18)}</a></li>`)}</ul>` : empty('Hali oʻquvchi yoʻq.', 'people'))}`);
+  ctx.render(html`${head('Oʻquvchilar', '', state.classes.length ? picker() : '')}${card('Guruh roʻyxati', r?.students.length ? html`<ul class="list">${r.students.map((s) => html`<li><a class="line link" href="#/students/${s.id}">${avatar(s)}<div><b>${full(s)}</b><small>${s.level}</small></div><span class="row tight">${mark(s.activity)}${mark(s.behaviour)}${mark(s.homework)}</span>${icon('next', 18)}</a></li>`)}</ul>` : empty('Hali oʻquvchi yoʻq.', 'people'))}`);
   bindPicker(ctx); bindDo(ctx);
 };
 export async function studentPage(ctx) {
@@ -281,7 +274,7 @@ export async function studentPage(ctx) {
   if (!ctx.live()) return;
   const s = r.student, st = r.stats;
   ctx.render(html`<a class="back" href="#/students">${icon('left', 18)} <span>Oʻquvchilar</span></a>
-    <section class="card profile"><div class="pf-main">${avatar(s, 'xxl')}<div><h2>${full(s)}</h2><p>${s.class_name} · <span class="mono">${r.login}</span></p><div class="row tight">${chip(`Level ${s.level}`, 'blue')}<button class="btn small ghost" id="edit">Daraja va sinf</button></div></div></div>
+    <section class="card profile"><div class="pf-main">${avatar(s, 'xxl')}<div><h2>${full(s)}</h2><p>${s.class_name} · <span class="mono">${r.login}</span></p><div class="row tight">${chip(`Level ${s.level}`, 'blue')}<button class="btn small ghost" id="edit">Daraja va guruh</button></div></div></div>
       <dl class="quick"><div><dt>Davomat</dt><dd>${pc(st.attendance)}</dd></div><div><dt>Faollik</dt><dd>${pc(st.activity)}</dd></div><div><dt>Intizom</dt><dd>${pc(st.behaviour)}</dd></div><div><dt>Uy vazifalari</dt><dd>${r.homeworkDone.done}/${r.homeworkDone.total}</dd></div></dl></section>
     <div class="grid split">${card('English Progress', line(r.progress.map((p) => ({ label: p.month.slice(5), full: p.month, value: p.score })), { label: 'Oylik natija', head: ['Oy', 'Natija'] }))}
       ${card('Fikr yozish', html`<form id="fb">${field('text', 'Ota-ona va oʻquvchi koʻradi', { type: 'textarea', rows: 4, maxlength: 800, placeholder: 'Nima yaxshi chiqdi va uyda nimaga eʼtibor berish kerak?' })}<button class="btn small" type="submit">Yuborish</button></form>${feedbackList(r.feedback.slice(0, 5), true)}`)}</div>
@@ -294,7 +287,7 @@ export async function studentPage(ctx) {
   onSubmit($('#fb'), async (v) => { await api('POST', '/t/feedback', { student_id: s.id, text: v.text }); toast('Fikr yuborildi'); ctx.refresh(); });
   $$('[data-delfb]').forEach((b) => b.addEventListener('click', act(async () => { if (!await confirmBox('Fikr oʻchirilsinmi?', 'Ota-ona ham koʻrmaydi.', 'Oʻchirish')) return; await api('DELETE', `/t/feedback/${b.dataset.delfb}`); ctx.refresh(); })));
   $$('[data-cam]').forEach((i) => i.addEventListener('change', async () => { try { await api('PUT', `/t/links/${i.dataset.cam}/camera`, { on: i.checked }); toast(i.checked ? 'Kameraga ruxsat berildi' : 'Kameraga ruxsat yopildi'); } catch (e) { i.checked = !i.checked; toast(e.message, 'err'); } }));
-  $('#edit').addEventListener('click', () => formBox('Daraja va sinf', html`${select('level', 'Daraja', ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'].map((x) => [x, x]), s.level)}${select('class_id', 'Sinf', state.classes.map((c) => [c.id, c.name]), s.class_id)}`, 'Saqlash', async (v) => { await api('PATCH', `/t/students/${s.id}`, v); ctx.refresh(); }));
+  $('#edit').addEventListener('click', () => formBox('Daraja va guruh', html`${select('level', 'Daraja', ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'].map((x) => [x, x]), s.level)}${select('class_id', 'Guruh', state.classes.map((c) => [c.id, c.name]), s.class_id)}`, 'Saqlash', async (v) => { await api('PATCH', `/t/students/${s.id}`, v); ctx.refresh(); }));
   $('#rm').addEventListener('click', act(async () => {
     if (!await confirmBox('Oʻquvchini oʻchirasizmi?', `${full(s)}: barcha maʼlumot qaytarib boʻlmaydigan qilib oʻchiriladi.`, 'Oʻchirish')) return;
     await api('DELETE', `/t/students/${s.id}`); toast('Oʻchirildi'); location.hash = '#/students';
@@ -304,17 +297,17 @@ export async function studentPage(ctx) {
 /* ---------- sozlamalar ---------- */
 async function settings(ctx) {
   await loadClasses();
-  const [{ code }, { user: u }] = await Promise.all([api('GET', '/t/code'), api('GET', '/me')]);
+  const { user: u } = await api('GET', '/me');
   if (!ctx.live()) return;
   await settingsPage(ctx, html`${card('Ommaviy profil', html`<form id="prof">${field('position', 'Lavozim', { value: u.position, placeholder: 'Senior English Teacher', maxlength: 80 })}${field('experience', 'Tajriba (yil)', { type: 'number', value: u.experience, min: 0, max: 60 })}${field('bio', 'Oʻzi haqida', { type: 'textarea', value: u.bio, maxlength: 400 })}<label class="switch"><input type="checkbox" name="public" value="1" ${u.public ? html`checked` : ''}><i></i><span>Profilimni bosh sahifada koʻrsatish</span></label><button class="btn" type="submit">Saqlash</button></form>`)}
-    ${card('Sinflarim', html`<ul class="list">${state.classes.map((c) => html`<li class="line"><div><b>${c.name}</b><small><span>${c.course || 'English'}</span> · ${c.students} <span>oʻquvchi</span>${c.room ? ` · ${c.room}` : ''}</small></div><button class="iconbtn sm" data-editcls="${c.id}" aria-label="Tahrirlash">${icon('edit', 18)}</button><button class="iconbtn sm" data-do="DELETE /t/classes/${c.id}" data-title="Sinf oʻchirilsinmi?" data-ask="Boʻsh sinf roʻyxatdan oʻchadi." data-yes="Oʻchirish" aria-label="Oʻchirish">${icon('trash', 18)}</button></li>`)}</ul><button class="btn small ghost" id="addc">${icon('plus', 18)} <span>Sinf ochish</span></button><p class="fine"><span>Hamkasbingiz roʻyxatdan oʻtishi uchun maktab kodi</span>: <b class="mono">${code}</b></p>`)}`, () => {
+    ${card('Guruhlarim', html`<ul class="list">${state.classes.map((c) => html`<li class="line"><div><b>${c.name}</b><small><span>${c.course || 'English'}</span> · ${c.students} <span>oʻquvchi</span>${c.room ? ` · ${c.room}` : ''}</small></div><button class="iconbtn sm" data-editcls="${c.id}" aria-label="Tahrirlash">${icon('edit', 18)}</button><button class="iconbtn sm" data-do="DELETE /t/classes/${c.id}" data-title="Guruh oʻchirilsinmi?" data-ask="Boʻsh guruh roʻyxatdan oʻchadi." data-yes="Oʻchirish" aria-label="Oʻchirish">${icon('trash', 18)}</button></li>`)}</ul><button class="btn small ghost" id="addc">${icon('plus', 18)} <span>Guruh ochish</span></button>`)}`, () => {
     onSubmit($('#prof'), async (v) => { await api('PUT', '/me/profile', { ...v, public: v.public === '1' }); toast('Saqlandi'); });
     bindDo(ctx);
-    $('#addc').addEventListener('click', () => formBox('Sinf ochish', html`${field('name', 'Sinf nomi', { placeholder: '8-B', cap: 'characters', maxlength: 16 })}${field('course', 'Kurs', { placeholder: 'English Intermediate', maxlength: 60 })}`, 'Ochish', async (v) => { await api('POST', '/t/classes', v); ctx.refresh(); }));
+    $('#addc').addEventListener('click', () => formBox('Guruh ochish', html`${field('name', 'Guruh nomi', { placeholder: 'Intermediate-2', maxlength: 30 })}${field('course', 'Kurs', { placeholder: 'English Intermediate', maxlength: 60 })}`, 'Ochish', async (v) => { await api('POST', '/t/classes', v); ctx.refresh(); }));
     $$('[data-editcls]').forEach((b) => b.addEventListener('click', () => editClass(ctx, state.classes.find((c) => c.id === Number(b.dataset.editcls)))));
   });
 }
-export const editClass = (ctx, c, teachers) => formBox('Sinfni tahrirlash', html`${field('name', 'Sinf nomi', { value: c.name, cap: 'characters', maxlength: 16 })}${field('course', 'Kurs', { value: c.course, placeholder: 'English Intermediate', maxlength: 60 })}${select('room_id', 'Xona', [['', 'Belgilanmagan'], ...state.rooms.map((r) => [r.id, r.name])], c.room_id || '')}${teachers ? select('teacher_id', 'Oʻqituvchi', teachers.map((t) => [t.id, full(t)]), c.teacher_id) : ''}`, 'Saqlash', async (v) => { await api('PATCH', `/t/classes/${c.id}`, v); ctx.refresh(); });
+export const editClass = (ctx, c, teachers) => formBox('Guruhni tahrirlash', html`${field('name', 'Guruh nomi', { value: c.name, maxlength: 30 })}${field('course', 'Kurs', { value: c.course, placeholder: 'English Intermediate', maxlength: 60 })}${select('room_id', 'Xona', [['', 'Belgilanmagan'], ...state.rooms.map((r) => [r.id, r.name])], c.room_id || '')}${teachers ? select('teacher_id', 'Oʻqituvchi', teachers.map((t) => [t.id, full(t)]), c.teacher_id) : ''}`, 'Saqlash', async (v) => { await api('PATCH', `/t/classes/${c.id}`, v); ctx.refresh(); });
 
 export const bottom = () => ['dashboard', 'register', 'live', 'schedule', 'settings'];
 export const pages = () => [
@@ -323,7 +316,7 @@ export const pages = () => [
   { id: 'register', uz: 'Jurnal', icon: 'calendar', page: journal('Jurnal') },
   { id: 'assessments', uz: 'Test natijalari', icon: 'chart', page: assessments },
   { id: 'homework', uz: 'Uy vazifalari', icon: 'book', page: homework },
-  { id: 'students', uz: 'Oʻquvchilar', icon: 'people', page: students, badge: () => state.pending || '' },
+  { id: 'students', uz: 'Oʻquvchilar', icon: 'people', page: students },
   { id: 'schedule', uz: 'Dars jadvali', short: 'Jadval', icon: 'clock', page: schedule },
   { id: 'notifications', uz: 'Bildirishnomalar', icon: 'bell', page: (ctx) => notificationsPage(ctx) },
   { id: 'settings', uz: 'Sozlamalar', short: 'Profil', icon: 'gear', page: settings },

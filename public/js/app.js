@@ -1,4 +1,4 @@
-import { html, put, $, $$, api, state, toast, icon, logo, field, select, phoneField, onSubmit, setError, passCard, full, avatar, skeleton, Poller, act } from './ui.js';
+import { html, put, $, $$, api, state, toast, icon, logo, field, phoneField, onSubmit, setError, passCard, full, avatar, skeleton, Poller, act } from './ui.js';
 import { langPicker, bindLang, tr, ready } from './i18n.js';
 import { analysePhoto, toCanvas, loadFace } from './face.js';
 import { landing, isSection } from './landing.js';
@@ -13,7 +13,7 @@ let token = 0;
 let view = ''; // qaysi qobiq chizilgan: landing, auth, shell
 
 /* ---------- kirish va roʻyxatdan oʻtish ---------- */
-const ROLES = [['student', 'Oʻquvchi', 'Baholar, vazifalar va dars jadvali', 'book'], ['parent', 'Ota-ona', 'Farzandning taʼlim jarayoni', 'people'], ['teacher', 'Oʻqituvchi', 'Sinf, jurnal va jonli dars', 'cap']];
+const ROLES = [['student', 'Oʻquvchi', 'Baholar, vazifalar va dars jadvali', 'book'], ['parent', 'Ota-ona', 'Farzandning taʼlim jarayoni', 'people'], ['teacher', 'Oʻqituvchi', 'Guruh, jurnal va jonli dars', 'cap']];
 const remembered = () => { try { return localStorage.getItem('hs-login') || ''; } catch { return ''; } };
 const remember = (l) => { try { localStorage.setItem('hs-login', l); } catch { /* ixtiyoriy */ } };
 
@@ -28,7 +28,7 @@ function login() {
   auth(html`<form id="login"><h1>Kirish</h1><p class="sub">Login, telefon yoki Telegram nik bilan kiring.</p>
     ${field('login', 'Login', { value: remembered(), placeholder: 'HS-1234', autocomplete: 'username', cap: 'none' })}
     ${field('password', 'Parol', { type: 'password', placeholder: 'apple-river-123', autocomplete: 'current-password', cap: 'none' })}
-    <button class="btn wide" type="submit">Kirish</button><p class="fine">Parolni unutgan oʻquvchi va ota-onaga oʻqituvchi yangi parol beradi.</p><p class="alt"><span>Hisobingiz yoʻqmi?</span> <a href="#/join">Roʻyxatdan oʻtish</a></p></form>`);
+    <button class="btn wide" type="submit">Kirish</button><p class="fine">Parolni unutgan boʻlsangiz, administrator yangisini beradi.</p><p class="alt"><span>Hisobingiz yoʻqmi?</span> <a href="#/join">Roʻyxatdan oʻtish</a></p></form>`);
   onSubmit($('#login'), async (v) => { const { user } = await api('POST', '/login', v); remember(v.login); await enter(user); });
 }
 const joinPick = () => auth(html`<h1>Roʻyxatdan oʻtish</h1><p class="sub">Siz kimsiz?</p><div class="roles">${ROLES.map(([r, t, d, i]) => html`<a href="#/join/${r}">${icon(i, 26)}<span><b>${t}</b><small>${d}</small></span>${icon('next', 20)}</a>`)}</div><p class="alt"><span>Hisobingiz bormi?</span> <a href="#/login">Kirish</a></p>`);
@@ -36,25 +36,18 @@ const joinPick = () => auth(html`<h1>Roʻyxatdan oʻtish</h1><p class="sub">Siz 
 async function join(role) {
   const info = ROLES.find((r) => r[0] === role);
   if (!info) return joinPick();
-  const mine = token;
   const names = html`<div class="two">${field('first', 'Ism', { autocomplete: 'given-name', maxlength: 40 })}${field('last', 'Familiya', { autocomplete: 'family-name', maxlength: 40 })}</div>`;
-  let classes = [];
-  if (role === 'student') {
-    try { classes = await api('GET', '/classes'); } catch (e) { toast(e.message, 'err'); }
-    if (mine !== token) return;
-  }
   const body = {
     student: () => html`${names}
       <fieldset class="field"><legend>Qanday bogʻlanamiz?</legend><div class="seg"><label><input type="radio" name="contact" value="phone" checked><span>Telefon raqam</span></label><label><input type="radio" name="contact" value="telegram"><span>Telegram nik</span></label></div></fieldset>
       <div data-contact="phone">${phoneField('phone', 'Telefon raqamingiz')}</div><div data-contact="telegram" hidden>${field('telegram', 'Telegram nik', { placeholder: '@ali_valiyev', cap: 'none', maxlength: 33 })}</div>
       ${field('address', 'Turar joy', { placeholder: 'Shahar, mahalla, koʻcha, uy', autocomplete: 'street-address' })}${phoneField('parent_phone', 'Ota-onaning telefon raqami')}
-      ${select('class_id', 'Sinf', [['', 'Sinfni tanlang'], ...classes.map((c) => [c.id, `${c.name}, ${c.teacher}`])])}${classes.length ? '' : html`<p class="fine">Hali sinf ochilmagan. Avval oʻqituvchi roʻyxatdan oʻtishi kerak.</p>`}
       <div class="field" data-field="photo"><span>Rasm (kamera sizni tanishi uchun)</span><div class="selfie"><div class="selfie-view" id="view">${icon('child', 88)}</div><div class="selfie-side"><p id="photo-msg">Bitta oʻzingiz, yorugʻ joyda, kameraga toʻgʻri qarab.</p><div class="row tight"><button type="button" class="btn small" id="cam">Kamerani yoqish</button><label class="btn small ghost"><span>Fayldan tanlash</span><input type="file" id="file" accept="image/*" capture="user" hidden></label></div></div></div><em class="err"></em></div>
-      <label class="check field" data-field="consent"><input type="checkbox" name="consent" value="1"><span>Ota-onam rozi: rasmim dars kamerasida meni tanish uchun shu maktab serverida saqlanadi.</span><em class="err"></em></label>`,
-    parent: () => html`${names}${phoneField('phone', 'Telefon raqamingiz')}<h2 class="sub2">Farzandingiz</h2><div class="two">${field('child_first', 'Farzandning ismi', { maxlength: 40 })}${field('child_last', 'Farzandning familiyasi', { maxlength: 40 })}</div><p class="fine">Oʻqituvchi tasdiqlaganidan keyin farzandingizning baholari va jonli dars ochiladi.</p>`,
-    teacher: () => html`${names}${phoneField('phone', 'Telefon raqamingiz')}${field('class_name', 'Birinchi sinfingiz', { placeholder: '7-A', cap: 'characters', maxlength: 16 })}${field('code', 'Maktab kodi', { placeholder: 'ABCD-2345', cap: 'characters', maxlength: 12, hint: 'Kodni maktab administratoridan oling.' })}`,
+      <label class="check field" data-field="consent"><input type="checkbox" name="consent" value="1"><span>Ota-onam rozi: rasmim dars kamerasida meni tanish uchun shu toʻgarak serverida saqlanadi.</span><em class="err"></em></label>`,
+    parent: () => html`${names}${phoneField('phone', 'Telefon raqamingiz')}<h2 class="sub2">Farzandingiz</h2><div class="two">${field('child_first', 'Farzandning ismi', { maxlength: 40 })}${field('child_last', 'Farzandning familiyasi', { maxlength: 40 })}</div><p class="fine">Administrator tasdiqlagach, farzandingizning baholari va jonli dars ochiladi.</p>`,
+    teacher: () => html`${names}${phoneField('phone', 'Telefon raqamingiz')}`,
   }[role]();
-  auth(html`<form id="join"><a class="back" href="#/join">${icon('left', 18)} <span>Orqaga</span></a><h1>${info[1]}</h1><p class="sub">${info[2]}</p>${body}<button class="btn wide" type="submit">Roʻyxatdan oʻtish</button></form>`);
+  auth(html`<form id="join"><a class="back" href="#/join">${icon('left', 18)} <span>Orqaga</span></a><h1>${info[1]}</h1><p class="sub">${info[2]}</p>${body}<button class="btn wide" type="submit">Soʻrov yuborish</button><p class="fine">Soʻrov administratorga boradi. U tasdiqlagach, ilova ochiladi.</p></form>`);
   const form = $('#join');
   const photo = role === 'student' ? selfie(form) : null;
   leave = () => photo?.stop();
@@ -67,7 +60,7 @@ async function join(role) {
     const r = await api('POST', '/register/' + role, v);
     photo?.stop();
     remember(r.login);
-    auth(html`<h1>Roʻyxatdan oʻtdingiz</h1><p class="sub">Bu login va parolni saqlab qoʻying. Keyingi safar shu bilan tez kirasiz. Parol boshqa koʻrsatilmaydi.</p>${passCard(full(r.user), r.login, r.password)}<button class="btn wide" id="go">Saqladim, davom etish</button><p class="fine">Shu qurilmada 180 kungacha parolsiz ochiladi.</p>`);
+    auth(html`<h1>Soʻrov yuborildi</h1><p class="sub">Bu login va parolni saqlab qoʻying. Keyingi safar shu bilan tez kirasiz. Parol boshqa koʻrsatilmaydi.</p>${passCard(full(r.user), r.login, r.password)}<button class="btn wide" id="go">Saqladim, davom etish</button><p class="fine">Shu qurilmada 180 kungacha parolsiz ochiladi.</p>`);
     $('#go').addEventListener('click', () => enter(r.user));
   });
 }
@@ -137,7 +130,28 @@ async function start(user) {
   });
   await book().init?.();
 }
+/** Administrator tasdiqlamaguncha faqat shu sahifa koʻrinadi. Tasdiqlangach, ilova oʻzi ochiladi. */
+function waitPage() {
+  const u = state.waiting;
+  auth(html`<div class="wait">${icon('clock', 44)}<h1>Soʻrovingiz yuborildi</h1><p class="sub">Administrator tasdiqlagach, ilova shu yerda oʻzi ochiladi. Sahifani yopib, keyinroq kirsangiz ham boʻladi.</p>
+    <dl class="facts"><div><dt>Ism</dt><dd>${full(u)}</dd></div><div><dt>Siz</dt><dd>${ROLE_NAME[u.role]}</dd></div><div><dt>Login</dt><dd class="mono">${u.login}</dd></div></dl>
+    <button class="btn wide" id="check">Holatni tekshirish</button><button class="btn ghost wide" id="out">Chiqish</button></div>`);
+  const check = async (loud) => {
+    try {
+      const { user } = await api('GET', '/me');
+      if (!state.waiting) return;
+      if (!user) { state.waiting = null; toast('Soʻrov rad etilgan. Administrator bilan bogʻlaning.', 'err'); location.hash = '#/login'; return; }
+      if (user.status === 'approved') { state.waiting = null; toast('Administrator tasdiqladi. Xush kelibsiz!'); await enter(user); } else if (loud) toast('Hali tasdiqlanmagan.', 'info');
+    } catch (e) { if (loud) toast(e.message, 'err'); }
+  };
+  const t = setInterval(() => { if (!document.hidden) check(); }, Math.max(5000, state.pace.idle));
+  const b = leave;
+  leave = () => { b?.(); clearInterval(t); };
+  $('#check').addEventListener('click', act(() => check(true)));
+  $('#out').addEventListener('click', act(async () => { await api('POST', '/logout'); state.waiting = null; location.hash = '#/login'; }));
+}
 async function enter(user) {
+  if (user.status !== 'approved') { state.waiting = user; if (location.hash === '#/wait') route(); else location.hash = '#/wait'; return; }
   await start(user);
   if (location.hash === '#/dashboard') route(); else location.hash = '#/dashboard';
 }
@@ -241,6 +255,7 @@ function route() {
   scrollTo(0, 0);
   if (state.user) return shell();
   document.title = 'HISCHOOL';
+  if (state.waiting) return waitPage();
   const m = /^#\/join\/(\w+)$/.exec(h);
   if (m) return join(m[1]);
   if (h === '#/join') return joinPick();
@@ -256,6 +271,7 @@ await ready;
 try {
   const { user, pace } = await api('GET', '/me');
   state.pace = pace;
-  if (user) await start(user);
+  if (user && user.status !== 'approved') state.waiting = user;
+  else if (user) await start(user);
 } catch (e) { toast(e.message, 'err'); }
 route();
