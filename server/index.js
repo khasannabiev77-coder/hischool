@@ -18,7 +18,7 @@ const tls = existsSync(path.join(CERT, 'cert.pem')) && existsSync(path.join(CERT
 const MOUNTS = [...VENDOR.map(([url, dir]) => [url, path.join(ROOT, 'node_modules', dir)]), ['/', path.join(ROOT, 'public')]];
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json',
-  '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.wasm': 'application/wasm', '.bin': 'application/octet-stream', '.webmanifest': 'application/manifest+json',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.wasm': 'application/wasm', '.bin': 'application/octet-stream', '.webmanifest': 'application/manifest+json',
 };
 
 function serveStatic(req, res, pathname) {
